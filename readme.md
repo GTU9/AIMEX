@@ -1,131 +1,92 @@
-# [프로젝트 이름] | 팀 포트폴리오 프로젝트 🚀
+# AIMEX - AI Marketing Expert
 
-**[한 줄 요약: 예: SK Networks AI Camp에서 개발한 LLM 기반 문화 콘텐츠 추천 앱으로, 개인화된 사용자 경험을 제공합니다.]**
+![AIMEX Logo](https://via.placeholder.com/150?text=AIMEX+Logo)  
+**AI로 혁신적인 마케팅 솔루션을 제공하는 프로젝트**
 
-[![데모 스크린샷](https://your-image-url.com/screenshot.jpg)](https://your-demo-url.com) <!-- 데모 링크와 스크린샷 -->
+AIMEX(AI Marketing Expert)는 인공지능을 활용해 마케팅 콘텐츠 제작의 효율성을 극대화하고, 브랜드 일관성을 유지하며, 실시간 트렌드 대응과 성과 분석을 가능하게 하는 통합 솔루션입니다. 이 프로젝트는 AI 인플루언서 생성, SNS 마케팅 자동화, 챗봇 기능을 핵심으로 삼아, 기업의 마케팅 과제를 해결하고 Z세대 중심의 디지털 마케팅 수요에 부응합니다. 현대적인 기술 스택과 오픈소스 생태계를 결합하여 개발되었으며, 다매체 콘텐츠(텍스트, 이미지, 음성) 자동 생성의 강점을 지닙니다.
 
-## 🎯 프로젝트 개요
-[프로젝트 설명: 예: 이 프로젝트는 SK Networks Family AI Camp의 일환으로, LLM을 활용해 사용자 취향에 맞는 문화 콘텐츠(영화, 음악 등)를 추천하는 웹 앱입니다. 팀 협업과 AI 기술 통합을 통해 실시간 추천 시스템을 구현했습니다.]
+## 팀 정보
+- **김상익**: 백엔드 개발 - 서버 아키텍처 설계 및 데이터베이스 관리
+- **김형주**: 프론트엔드 개발 - 사용자 인터페이스 및 실시간 챗봇 UI 구현
+- **나지윤**: 프롬프트 엔지니어링 - AI 모델의 자연스러운 말투 및 응답 최적화
+- **이현대**: 파인튜닝 - AI 모델의 성능 개선 및 특화된 학습 데이터 처리
+- **이현민**: 이미지 생성 - 생성형 AI를 활용한 고품질 이미지 제작
 
-- **개발 기간**: [예: 2025년 7월 ~ 10월 (4개월)]
-- **팀 규모**: [예: 4인 팀]
-- **목표**: [예: 사용자 맞춤 콘텐츠 추천과 직관적인 UI 제공]
+## 프로젝트 배경
+현대 마케팅 환경에서 기업의 77%가 AI를 도입하고 있으며, 특히 마케팅(53%), 영업(49%), 고객 지원(46%) 분야에서 활용이 증가하고 있습니다(출처: [ServiceDirect, 2024](https://servicedirect.com/resources/small-business-ai-report/)). 그러나 다음과 같은 문제들이 도출되었습니다:
+- **콘텐츠 제작 효율성 부족**: 과도한 시간과 인력 소요
+- **브랜드 스타일 유지 어려움**: 담당자 변경으로 인한 일관성 상실
+- **트렌드 대응 지연**: 반복적인 수작업 수정 필요
+- **성과 분석 한계**: 실시간 효과 측정이 어려움
 
-### 주요 도전과 해결
-- **도전**: [예: 대규모 데이터셋의 실시간 처리] → [해결: AWS Lambda로 데이터 파이프라인 최적화]
-- **도전**: [예: 팀 간 코드 통합 문제] → [해결: Git 브랜치 전략과 CI/CD 도입]
+AIMEX는 이러한 문제를 해결하기 위해 생성형 AI 기술과 자동화 파이프라인을 도입하여, 효율성과 유연성을 강화합니다.
 
-## ✨ 주요 기능
-- [기능 1: 예: LLM 기반 개인화 콘텐츠 추천]
-- [기능 2: 예: 사용자 피드백 반영 및 실시간 업데이트]
-- [기능 3: 예: 반응형 UI로 멀티 디바이스 지원]
-- [기능 4: 예: 데이터 시각화 대시보드]
+## 주요 기능
+### 1. AI 인플루언서 생성 자동화
+- **말투 생성**: 사용자 정의 캐릭터(예: 한세나, ENFP 20대 여성, 경쾌하고 장난스러운 스타일) 기반으로 자연스러운 대화 생성. OpenAI와 HuggingFace를 활용해 3가지 말투 옵션 및 2,000개 QA 쌍 생성.
+- **이미지 생성**: ComfyUI와 RunPod를 통해 고품질 이미지 자동 생성. Amazon S3에 저장 및 재생성 가능.
+- **음성 복제**: 사용자가 제공한 베이스 음성을 기반으로 zonos 기술로 맞춤형 음성 생성.
+- **특징**: 말투 유지, 이모지 및 행동 묘사(예: (미소 지으며))로 캐릭터 매력 강화.
 
-## 🛠️ 기술 스택
-| 카테고리       | 기술/도구                     | 사용 이유                     |
-|----------------|-------------------------------|------------------------------|
-| **프론트엔드** | React, TypeScript, Tailwind CSS | 컴포넌트 기반 개발, 스타일링 효율성 |
-| **백엔드**     | Python, FastAPI, AWS Lambda   | 고속 API와 서버리스 아키텍처 |
-| **AI/ML**      | Hugging Face, TensorFlow      | LLM 모델 통합 및 학습         |
-| **데이터베이스** | MongoDB, Redis               | 빠른 데이터 저장 및 캐싱     |
-| **배포/도구**  | AWS, Git, Docker, GitHub Actions | 배포 자동화 및 팀 협업       |
+### 2. SNS 마케팅 자동화
+- **인스타그램 게시물 생성**: OpenAI와 LoRA 어댑터를 활용해 해시태그 포함 게시물 자동 작성. Instagram Graph API로 자동 업로드 지원.
+- **DM 자동응답**: 사용자 질문에 AI 인플루언서 말투로 실시간 응답. MySQL에 대화 기록 저장.
+- **활동 통계 분석**: 게시물 성과 데이터 자동 수집 및 분석.
 
-## 👥 팀 구성 및 기여
-- **[당신의 이름]** (역할: [예: 프론트엔드 리드]): [기여: 예: UI/UX 설계, React 컴포넌트 개발, 사용자 테스트]
-- **[팀원 이름 1]** (역할: [예: 백엔드 개발자]): [기여: 예: FastAPI 엔드포인트 구현]
-- **[팀원 이름 2]** (역할: [예: AI 엔지니어]): [기여: 예: LLM 모델 튜닝 및 데이터 전처리]
-- **[팀원 이름 3]** (역할: [예: DevOps]): [기여: 예: AWS 배포 및 CI/CD 파이프라인 구축]
+### 3. 챗봇 기능 자동화
+- **실시간 응답**: WebSocket 기반 양방향 통신으로 즉각적인 사용자 대화 지원.
+- **MCP 연동**: EXAONE-3.5-2.4B-INSTRUCT, NAVER 서치 등 외부 도구와의 동적 연동.
+- **응답 최적화**: LangChain-MCP-Adapter로 질의 분석 및 맞춤형 답변 제공.
 
-## 📸 데모 및 시각 자료
-- **라이브 데모**: [데모 링크](https://your-demo-url.com)
-- **비디오 데모**: [YouTube 링크](https://your-video-url.com)
-- **스크린샷**:
-  ![기능 1](https://your-image-url.com/screenshot1.jpg)
-  ![기능 2](https://your-image-url.com/screenshot2.jpg)
+## 기술 스택
+- **배포 환경**: AWS, Vercel, RunPod
+- **모델**: LG-EXAONE, GPT 40-MINI, 2.4B
+- **백엔드**: FastAPI, WebSocket
+- **프론트엔드**: Next.js
+- **데이터베이스**: MySQL, SQLAlchemy
+- **AI 프레임워크**: LangChain, VLLM, HuggingFace
 
-## 🏗️ 설치 및 실행
-### 사전 요구사항
-- [Python 3.9 이상](https://python.org/)
-- [Node.js v18 이상](https://nodejs.org/)
-- [AWS 계정](https://aws.amazon.com/)
-- [Docker](https://docker.com/)
-- Git
+## 시스템 아키텍처
+- **AI 인플루언서 생성**: 말투(파인튜닝 워커), 이미지(ComfyUI), 음성(zonos) 파이프라인 통합.
+- **SNS 마케팅**: 게시물 및 DM 응답을 위한 AWS S3 및 MySQL 연동.
+- **챗봇**: MCP 도구와의 실시간 통신을 위한 WebSocket 및 VLLM 활용.
 
-### 설치
-1. 리포지토리 클론:
-   ```bash
-   git clone https://github.com/your-team/[프로젝트-이름].git
-   cd [프로젝트-이름]
+## 개선 포인트
+- **AI 인플루언서**: 이미지 생성 속도 50% 감소, OpenAI 병렬 요청으로 비용 및 응답 속도 개선.
+- **SNS 마케팅**: 프롬프트 통합 및 예약 발행 스케줄러로 품질 및 안정성 향상.
+- **챗봇**: EC2 + RunPod 서버리스 구조로 응답 속도 및 비용 최적화.
 
+## SWOT 분석
+- **Strengths**: 온프레미스 서비스, 다매체 콘텐츠 자동 생성
+- **Weaknesses**: GPU 고사양 요구, 실시간 API 의존성
+- **Opportunities**: Z세대 마케팅 수요 증가, 오픈모델 생태계 확장
+- **Threats**: SaaS 경쟁, 외부 API 정책 리스크
 
-종속성 설치:npm install  # 프론트엔드
-pip install -r requirements.txt  # 백엔드
+## 타겟층 및 실활용 예시
+- **브랜드 마케팅 기업**: 캐릭터 말투로 SNS 콘텐츠 자동 생성, 인스타그램 자동 업로드.
+- **커머스 운영사**: AI 쇼호스트로 상품 소개 및 고객 응대 자동화.
+- **엔터테인먼트 제작사**: 팬 질문에 실시간 음성 응답 및 인터뷰 제작.
+- **지역 홍보단체**: 지역 마스코트 AI화로 관광 안내 채팅 제공.
 
+## 데모
+- [시연 영상 링크](https://example.com/demo) (구현 시 실제 링크로 대체)
 
-환경 변수 설정:
-.env 파일 생성: AWS_ACCESS_KEY=your_key, MONGODB_URI=your_uri
+## 라이선스
+MIT License - 자유로운 사용 및 수정 가능
 
+## 기여 방법
+- 이슈 제출 또는 풀 리퀘스트 환영
+- [이슈 페이지](https://github.com/yourusername/AIMEX/issues)에서 논의
 
-실행:npm start  # 프론트엔드
-uvicorn main:app --reload  # 백엔드 (FastAPI)
+## 연락처
+- 이메일: [your.email@example.com](mailto:your.email@example.com)
+- GitHub: [yourusername](https://github.com/yourusername)
 
-→ http://localhost:3000에서 프론트엔드 확인
+---
 
-📁 프로젝트 구조
-[프로젝트-이름]/
-├── frontend/           # React 프론트엔드
-│   ├── src/
-│   │   ├── components/ # React 컴포넌트
-│   │   ├── pages/      # 페이지 라우팅
-│   │   └── utils/      # 헬퍼 함수
-├── backend/            # FastAPI 백엔드
-│   ├── models/         # AI/ML 모델
-│   ├── routes/         # API 엔드포인트
-├── docker/             # Docker 설정
-├── tests/              # 단위/통합 테스트
-├── .env.example        # 환경 변수 예시
-├── package.json        # 프론트엔드 종속성
-├── requirements.txt    # 백엔드 종속성
-└── README.md           # 이 파일
+### 확인 사항
+- **마크다운 형식**: 제목(`#`, `##`), 리스트(`-`), 링크(`[텍스트](URL)`), 이미지(`![alt](URL)`) 등 마크다운 문법을 준수.
+- **세부 내용**: 프로젝트 개요, 기능, 기술 스택, SWOT 분석 등이 상세히 포함됨.
+- **플레이스홀더**: 실제 로고 이미지나 데모 링크가 없으므로 `via.placeholder.com`로 대체했으며, 필요 시 실제 URL로 교체 가능.
 
-📊 성과 및 영향
-
-성과: [예: 추천 정확도 85% 달성, 페이지 로드 시간 1.5초 이내]
-피드백: [예: 30명 사용자 테스트로 4.9/5점 평가]
-학습: [예: 팀 협업으로 GitHub Actions 워크플로우 최적화, 배포 시간 50% 단축]
-
-🤝 기여 방법
-기여를 환영합니다! 다음 단계를 따르세요:
-
-포크 후 클론.
-브랜치 생성: git checkout -b feature/your-feature
-커밋: git commit -m 'Add feature'
-푸시 및 PR: git push origin feature/your-feature
-
-기여 가이드 참조 (선택).
-📄 라이선스
-MIT License – 자세한 내용은 파일 확인.
-📬 연락처
-
-이름: [당신의 이름]
-이메일: [your-email@example.com]
-GitHub: github.com/yourusername
-LinkedIn: linkedin.com/in/yourusername
-팀 GitHub: github.com/your-team
-포트폴리오: your-portfolio.com
-
-이 팀 프로젝트로 저희의 협업과 기술을 확인해 주세요! 🙌
-
-마지막 업데이트: 2025-10-20
-
-## 사용 팁
-- **팀 프로젝트 강조**: "팀 구성 및 기여" 섹션에서 각 팀원의 역할과 기여를 명확히 작성해 협업 역량을 부각.
-- **포트폴리오용**: 개인 기여(예: UI 설계, API 개발)를 강조하고, "성과 및 영향"에 구체적 지표(예: 85% 정확도, 50% 단축) 추가.
-- **시각적 매력**: 스크린샷 2-3개, 데모 링크, 짧은 GIF(1-2MB 이하)로 시각적 효과 강화.
-- **간결성**: 1-2페이지 분량 유지, 핵심 정보만 포함.
-- **배지 활용**: GitHub Actions, AWS, 테스트 커버리지 배지로 전문성 추가.
-- **커스터마이징**: 특정 기술(예: Django, Kubernetes)이나 프로젝트 유형(예: AI, 웹 앱)에 맞춘 수정 필요 시 말씀해주세요.
-- **참고**: [awesome-readme](https://github.com/matiassingers/awesome-readme)에서 추가 아이디어 확인.
-- **Artifact 관련**: 이 템플릿은 xAI Artifact로 저장 가능하며, 버전 관리 UI를 통해 수정 사항 추적 가능. 추가 버전 수정 요청 시 구체적 피드백 주시면 반영하겠습니다.
-
-이 템플릿으로 팀 프로젝트 레포를 돋보이게 하세요! 🌟 추가 요청이나 수정 사항 있으면 알려주세요.
+추가 수정이나 특정 섹션의 보완이 필요하면 말씀해주세요!
