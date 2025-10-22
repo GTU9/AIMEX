@@ -69,5 +69,7 @@ AIMEX는 이러한 문제를 해결하기 위해 생성형 AI 기술과 자동�
 - **지역 홍보단체**: 지역 마스코트 AI화로 관광 안내 채팅 제공.
 
 ## 데모
-- [시연 영상 링크](https://example.com/demo)
+![시연 사진](etc/aimex_sample_img.png)
+![시연 사진](etc/aimex_sample_img2.png)
+![시연 사진](etc/aimex_sample_img3.png)
 
