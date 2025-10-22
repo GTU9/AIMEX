@@ -1,6 +1,6 @@
 # AIMEX - AI Marketing Expert
 
-![AIMEX Logo](https://via.placeholder.com/150?text=AIMEX+Logo)  
+![AIMEX Logo](\etc\aimex.png)  
 **AI로 혁신적인 마케팅 솔루션을 제공하는 프로젝트**
 
 AIMEX(AI Marketing Expert)는 인공지능을 활용해 마케팅 콘텐츠 제작의 효율성을 극대화하고, 브랜드 일관성을 유지하며, 실시간 트렌드 대응과 성과 분석을 가능하게 하는 통합 솔루션입니다. 이 프로젝트는 AI 인플루언서 생성, SNS 마케팅 자동화, 챗봇 기능을 핵심으로 삼아, 기업의 마케팅 과제를 해결하고 Z세대 중심의 디지털 마케팅 수요에 부응합니다. 현대적인 기술 스택과 오픈소스 생태계를 결합하여 개발되었으며, 다매체 콘텐츠(텍스트, 이미지, 음성) 자동 생성의 강점을 지닙니다.
@@ -69,24 +69,5 @@ AIMEX는 이러한 문제를 해결하기 위해 생성형 AI 기술과 자동�
 - **지역 홍보단체**: 지역 마스코트 AI화로 관광 안내 채팅 제공.
 
 ## 데모
-- [시연 영상 링크](https://example.com/demo) (구현 시 실제 링크로 대체)
+- [시연 영상 링크](https://example.com/demo)
 
-## 라이선스
-MIT License - 자유로운 사용 및 수정 가능
-
-## 기여 방법
-- 이슈 제출 또는 풀 리퀘스트 환영
-- [이슈 페이지](https://github.com/yourusername/AIMEX/issues)에서 논의
-
-## 연락처
-- 이메일: [your.email@example.com](mailto:your.email@example.com)
-- GitHub: [yourusername](https://github.com/yourusername)
-
----
-
-### 확인 사항
-- **마크다운 형식**: 제목(`#`, `##`), 리스트(`-`), 링크(`[텍스트](URL)`), 이미지(`![alt](URL)`) 등 마크다운 문법을 준수.
-- **세부 내용**: 프로젝트 개요, 기능, 기술 스택, SWOT 분석 등이 상세히 포함됨.
-- **플레이스홀더**: 실제 로고 이미지나 데모 링크가 없으므로 `via.placeholder.com`로 대체했으며, 필요 시 실제 URL로 교체 가능.
-
-추가 수정이나 특정 섹션의 보완이 필요하면 말씀해주세요!
