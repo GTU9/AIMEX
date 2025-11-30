@@ -8,8 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Bot } from "lucide-react"
 import { socialLogin } from "@/lib/social-auth"
 import { useAuth } from "@/hooks/use-auth"
+import { useToast } from "@/hooks/use-toast"
 
 export default function LoginPage() {
+  const { toast } = useToast()
   const [isLoading, setIsLoading] = useState<string | null>(null)
   const router = useRouter()
   const { login, isAuthenticated, isLoading: authLoading } = useAuth()
@@ -21,8 +23,17 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, authLoading, router])
 
+  // 로그인 중복 방지를 위한 상태
+  const [isRedirecting, setIsRedirecting] = useState(false)
+
   const handleOAuthLogin = async (provider: "google" | "naver") => {
+    // 이미 로딩 중이거나 리다이렉트 중이면 중복 요청 방지
+    if (isLoading !== null || isRedirecting) {
+      return
+    }
+
     setIsLoading(provider)
+    setIsRedirecting(true)
 
     try {
       // 리다이렉트 방식 소셜 로그인 시작
@@ -31,8 +42,14 @@ export default function LoginPage() {
       // 이 시점에서 페이지가 리다이렉트되므로 아래 코드는 실행되지 않음
     } catch (error) {
       console.error('로그인 시작 실패:', error)
-      alert('로그인을 시작할 수 없습니다. 다시 시도해주세요.')
+      toast({
+        title: "로그인 실패",
+        description: '로그인을 시작할 수 없습니다. 다시 시도해주세요.',
+        variant: "destructive",
+        duration: 3000,
+      })
       setIsLoading(null)
+      setIsRedirecting(false)
     }
   }
 
@@ -50,7 +67,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <Bot className="h-12 w-12 text-blue-600" />
+            <img src="/favicon.ico" alt="AI Influencer Platform" className="h-12 w-12" />
           </div>
           <CardTitle className="text-2xl font-bold">AI Influencer Platform</CardTitle>
           <CardDescription>기업용 AI 인플루언서 생성 및 관리 플랫폼</CardDescription>
@@ -62,16 +79,13 @@ export default function LoginPage() {
               <p className="text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
                 💡 처음 로그인하면 자동으로 계정이 생성됩니다
               </p>
-              <p className="text-xs text-orange-600 bg-orange-50 px-3 py-2 rounded-lg">
-                🏢 비즈니스 계정 권한으로 콘텐츠 관리 및 인사이트를 확인하세요
-              </p>
             </div>
           </div>
 
           {/* 구글 로그인 버튼 */}
           <Button
             onClick={() => handleOAuthLogin("google")}
-            disabled={isLoading !== null}
+            disabled={isLoading !== null || isRedirecting}
             className="w-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 flex items-center justify-center space-x-3 py-3"
             variant="outline"
           >
@@ -101,38 +115,6 @@ export default function LoginPage() {
               </>
             )}
           </Button>
-
-          {/* 네이버 로그인 버튼 */}
-          <Button
-            onClick={() => handleOAuthLogin("naver")}
-            disabled={isLoading !== null}
-            className="w-full bg-[#03C75A] hover:bg-[#02B351] text-white flex items-center justify-center space-x-3 py-3"
-          >
-            {isLoading === "naver" ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-            ) : (
-              <>
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M16.273 12.845 7.376 0H0v24h7.726V11.156L16.624 24H24V0h-7.727v12.845Z" />
-                </svg>
-                <span className="font-medium">네이버로 시작하기</span>
-              </>
-            )}
-          </Button>
-
-          <div className="mt-6 text-center">
-            <p className="text-xs text-gray-500">
-              계속 진행하시면{" "}
-              <a href="#" className="text-blue-600 hover:underline">
-                서비스 이용약관
-              </a>{" "}
-              및{" "}
-              <a href="#" className="text-blue-600 hover:underline">
-                개인정보처리방침
-              </a>
-              에 동의하는 것으로 간주됩니다.
-            </p>
-          </div>
         </CardContent>
       </Card>
     </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Navigation } from "@/components/navigation"
 import { RequireAdmin } from "@/components/auth/protected-route"
 import { Button } from "@/components/ui/button"
@@ -8,13 +8,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { User, Save, ShieldCheck, ShieldX, Plus, Trash2, Users, Eye, EyeOff, Key, Loader2 } from "lucide-react"
+import { User, ShieldCheck, ShieldX, Plus, Trash2, Users, Eye, Key, Loader2, Upload, ChevronDown, Download } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+
+
 import { useToast } from "@/hooks/use-toast"
 import { AdminService, type AdminTeam, type AdminUser, type AdminHFToken, type AdminCreateHFTokenRequest } from "@/lib/services/admin.service"
+import { apiClient } from "@/lib/api"
 
 export default function AdministratorPage() {
   const { toast } = useToast()
@@ -25,9 +27,13 @@ export default function AdministratorPage() {
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
   const [newGroupName, setNewGroupName] = useState("")
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [dragUserId, setDragUserId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [dragOverBox, setDragOverBox] = useState<string | null>(null)
+  const [teamSearchTerm, setTeamSearchTerm] = useState("")
+  const [activeTab, setActiveTab] = useState("group")
+
+  // 드래그 앤 드롭 관련 상태
+  const [draggedUser, setDraggedUser] = useState<AdminUser | null>(null)
+  const [dragOverTeam, setDragOverTeam] = useState<number | null>(null)
 
   // HF Token 관련 상태들
   const [hfTokens, setHfTokens] = useState<AdminHFToken[]>([])
@@ -37,8 +43,8 @@ export default function AdministratorPage() {
   const [inputUsername, setInputUsername] = useState("")
   const [selectedTeamForToken, setSelectedTeamForToken] = useState<number | null>(null)
   const [creatingToken, setCreatingToken] = useState(false)
-  const [dragTokenId, setDragTokenId] = useState<string | null>(null)
-  const [dragOverTokenBox, setDragOverTokenBox] = useState<string | null>(null)
+  const [isTeamDropdownOpen, setIsTeamDropdownOpen] = useState(false)
+
   const [selectedTokenDetail, setSelectedTokenDetail] = useState<AdminHFToken | null>(null)
   const [isTokenDetailOpen, setIsTokenDetailOpen] = useState(false)
 
@@ -51,10 +57,16 @@ export default function AdministratorPage() {
   const [editingTokenAlias, setEditingTokenAlias] = useState<string>("")
   const [isEditingAlias, setIsEditingAlias] = useState(false)
 
+  const isFetchingDataRef = useRef(false)
+  const isFetchingTokensRef = useRef(false)
+
   // API에서 데이터 로드
   useEffect(() => {
     const fetchData = async () => {
+      if (isFetchingDataRef.current) return
+
       try {
+        isFetchingDataRef.current = true
         setLoading(true)
         const [teamsData, usersData] = await Promise.all([
           AdminService.getTeams(),
@@ -70,6 +82,7 @@ export default function AdministratorPage() {
         setError(err.message || '데이터를 불러오는데 실패했습니다.')
       } finally {
         setLoading(false)
+        isFetchingDataRef.current = false
       }
     }
 
@@ -81,9 +94,13 @@ export default function AdministratorPage() {
     fetchHFTokens()
   }, [])
 
+
   // HF 토큰 데이터 로드
   const fetchHFTokens = async () => {
+    if (isFetchingTokensRef.current) return
+
     try {
+      isFetchingTokensRef.current = true
       setLoadingTokens(true)
       const tokensData = await AdminService.getHFTokens({ include_assigned: true })
       setHfTokens(tokensData)
@@ -92,6 +109,7 @@ export default function AdministratorPage() {
       setError(err.message || 'HF 토큰을 불러오는데 실패했습니다.')
     } finally {
       setLoadingTokens(false)
+      isFetchingTokensRef.current = false
     }
   }
 
@@ -213,133 +231,7 @@ export default function AdministratorPage() {
     setSelectedGroupId(null)
   }
 
-  // 드래그앤드롭 로직
-  const handleDragStart = (userId: string) => {
-    setDragUserId(userId)
-    // 드래그 중에도 스크롤 가능하도록 설정
-    document.body.style.overflow = 'auto'
-    document.body.style.userSelect = 'none'
 
-    // 드래그 중 스크롤을 방해하지 않도록 설정
-    const handleDrag = (e: DragEvent) => {
-      e.preventDefault()
-      // 드래그 중에도 스크롤 허용
-      document.body.style.overflow = 'auto'
-    }
-
-    document.addEventListener('drag', handleDrag)
-
-    // 드래그 종료 시 이벤트 리스너 제거
-    const cleanup = () => {
-      document.removeEventListener('drag', handleDrag)
-      document.body.style.overflow = ''
-      document.body.style.userSelect = ''
-    }
-
-    // 드래그 종료 시 정리
-    document.addEventListener('dragend', cleanup, { once: true })
-  }
-
-  const handleDropToGroup = async () => {
-    if (dragUserId && selectedGroupId) {
-      try {
-        // 현재 사용자가 속한 팀들 찾기
-        const currentTeams = teams.filter(t =>
-          t.users.some(u => u.user_id === dragUserId)
-        )
-
-        // 이미 해당 팀에 속해있는지 확인
-        const alreadyInTargetTeam = currentTeams.some(t => t.group_id === selectedGroupId)
-
-        if (!alreadyInTargetTeam) {
-          const draggedUser = allUsers.find(u => u.user_id === dragUserId)
-          const targetTeam = teams.find(t => t.group_id === selectedGroupId)
-
-          // 다른 팀들에서 제거
-          for (const team of currentTeams) {
-            await AdminService.removeUserFromTeam(team.group_id, dragUserId)
-          }
-
-          // 새 팀에 추가
-          await AdminService.addUserToTeam(selectedGroupId, dragUserId)
-
-          // 상태 업데이트
-          const [updatedTeams, updatedUsers] = await Promise.all([
-            AdminService.getTeams(),
-            AdminService.getUsers()
-          ])
-          setTeams(updatedTeams)
-          setAllUsers(updatedUsers)
-
-          toast({
-            title: "팀 할당 완료",
-            description: `'${draggedUser?.user_name || '사용자'}'이(가) '${targetTeam?.group_name || '팀'}'에 성공적으로 할당되었습니다.`,
-            variant: "default",
-          })
-        } else {
-          toast({
-            title: "이미 할당됨",
-            description: "해당 사용자는 이미 이 팀에 할당되어 있습니다.",
-            variant: "default",
-          })
-        }
-      } catch (err: any) {
-        console.error('Failed to move user:', err)
-        setError('사용자 이동에 실패했습니다.')
-        toast({
-          title: "팀 할당 실패",
-          description: "사용자 팀 할당 중 오류가 발생했습니다.",
-          variant: "destructive",
-        })
-      }
-    }
-    setDragUserId(null);
-    setSelectedGroupId(null);
-  }
-
-  const handleDropToAll = async () => {
-    if (dragUserId) {
-      try {
-        const draggedUser = allUsers.find(u => u.user_id === dragUserId)
-        // 사용자가 속한 모든 팀에서 제거
-        const userTeams = teams.filter(t =>
-          t.users?.some(u => u.user_id === dragUserId)
-        )
-
-        for (const team of userTeams) {
-          await AdminService.removeUserFromTeam(team.group_id, dragUserId)
-        }
-
-        // 상태 업데이트
-        const [updatedTeams] = await Promise.all([AdminService.getTeams()])
-        setTeams(updatedTeams)
-
-        toast({
-          title: "팀에서 제거 완료",
-          description: `'${draggedUser?.user_name || '사용자'}'이(가) 모든 팀에서 성공적으로 제거되었습니다.`,
-          variant: "default",
-        })
-      } catch (err: any) {
-        console.error('Failed to remove user from teams:', err)
-        setError('사용자 제거에 실패했습니다.')
-        toast({
-          title: "팀에서 제거 실패",
-          description: "사용자 팀 제거 중 오류가 발생했습니다.",
-          variant: "destructive",
-        })
-      }
-    }
-    setDragUserId(null)
-    setSelectedGroupId(null)
-  }
-
-  const handleDragEnd = () => {
-    setDragUserId(null)
-    setDragOverBox(null)
-    setDragOverTokenBox(null)
-    document.body.style.overflow = ''
-    document.body.style.userSelect = ''
-  }
 
   // 사용자 관리 함수들
   const handleUserDetail = (user: AdminUser) => {
@@ -422,7 +314,7 @@ export default function AdministratorPage() {
       const team = teams.find(t => t.group_id === teamId)
       const user = allUsers.find(u => u.user_id === userId)
 
-      await AdminService.removeUserFromTeam(teamId, userId)
+      await AdminService.removeUserFromTeam(userId, teamId)
 
       // 데이터 새로고침
       const [teamsData, usersData] = await Promise.all([
@@ -476,6 +368,80 @@ export default function AdministratorPage() {
     }
   }
 
+  // 드래그 시작 핸들러
+  const handleDragStart = (e: React.DragEvent, user: AdminUser) => {
+    setDraggedUser(user)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', user.user_id)
+  }
+
+  // 드래그 오버 핸들러 (팀 섹션에서만)
+  const handleDragOver = (e: React.DragEvent, teamId: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverTeam(teamId)
+  }
+
+  // 드래그 리브 핸들러
+  const handleDragLeave = (e: React.DragEvent) => {
+    setDragOverTeam(null)
+  }
+
+  // 드롭 핸들러 (전체 사용자에서 팀으로만)
+  const handleDrop = async (e: React.DragEvent, teamId: number) => {
+    e.preventDefault()
+    setDragOverTeam(null)
+
+    if (!draggedUser) return
+
+    // 이미 해당 팀에 존재하는지 확인
+    const targetTeam = teams.find(team => team.group_id === teamId)
+    const isAlreadyInTeam = targetTeam?.users?.some(user => user.user_id === draggedUser.user_id)
+
+    if (isAlreadyInTeam) {
+      toast({
+        title: "팀 할당 실패",
+        description: `'${draggedUser.user_name}'은(는) 이미 해당 팀에 존재합니다.`,
+        variant: "destructive",
+      })
+      setDraggedUser(null)
+      return
+    }
+
+    try {
+      await AdminService.addUserToTeam(teamId, draggedUser.user_id)
+
+      // 데이터 새로고침
+      const [teamsData, usersData] = await Promise.all([
+        AdminService.getTeams(),
+        AdminService.getUsers()
+      ])
+      setTeams(teamsData)
+      setAllUsers(usersData)
+
+      toast({
+        title: "팀 할당 완료",
+        description: `'${draggedUser.user_name}'이(가) 팀에 성공적으로 할당되었습니다.`,
+        variant: "default",
+      })
+    } catch (err: any) {
+      console.error('Failed to assign user to team:', err)
+      toast({
+        title: "팀 할당 실패",
+        description: "팀 할당 중 오류가 발생했습니다.",
+        variant: "destructive",
+      })
+    } finally {
+      setDraggedUser(null)
+    }
+  }
+
+  // 드래그 종료 핸들러
+  const handleDragEnd = () => {
+    setDraggedUser(null)
+    setDragOverTeam(null)
+  }
+
   // 그룹/사용자 정보
   const selectedTeam = teams.find(t => t.group_id === selectedGroupId)
   const teamUsers = selectedTeam?.users || []
@@ -492,19 +458,42 @@ export default function AdministratorPage() {
   const aliasExists = hfTokens.some(t => t.hf_token_nickname === inputAlias.trim());
   const usernameExists = hfTokens.some(t => t.hf_user_name === inputUsername.trim());
 
+  // 탭별 제목과 아이콘
+  const getTabInfo = (tab: string) => {
+    switch (tab) {
+      case "group":
+        return {
+          title: "권한 그룹 관리",
+          icon: <Users className="h-5 w-5 text-blue-600" />,
+          description: "사용자를 드래그하여 그룹에 추가하거나 제거할 수 있습니다"
+        }
+      case "hf":
+        return {
+          title: "허깅페이스 토큰 관리",
+          icon: <Key className="h-5 w-5 text-yellow-600" />,
+          description: "AI 모델 사용을 위한 토큰을 관리하세요"
+        }
+      default:
+        return {
+          title: "관리자 설정",
+          icon: <ShieldCheck className="h-5 w-5 text-blue-600" />,
+          description: "시스템 설정을 관리하세요"
+        }
+    }
+  }
+
   return (
     <RequireAdmin>
-      <div className="min-h-screen bg-gray-50" style={{
-        overflow: 'auto',
-        overscrollBehavior: 'contain',
-        scrollBehavior: 'smooth'
-      }}>
+      <div className="min-h-screen bg-gray-50">
         <Navigation />
 
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">관리자 설정</h1>
-            <p className="text-gray-600 mt-2">시스템 설정을 관리하세요</p>
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+              {getTabInfo(activeTab).icon}
+              {getTabInfo(activeTab).title}
+            </h1>
+            <p className="text-gray-600 mt-2">{getTabInfo(activeTab).description}</p>
           </div>
 
           {/* 로딩 상태 */}
@@ -538,546 +527,588 @@ export default function AdministratorPage() {
 
           {/* 메인 콘텐츠 */}
           {!loading && !error && (
-            <>
-              <Tabs defaultValue="group" className="w-full">
-                <TabsList className="mb-6">
-                  <TabsTrigger value="group">권한 그룹 관리</TabsTrigger>
-                  <TabsTrigger value="hf">허깅페이스 토큰 관리</TabsTrigger>
-                </TabsList>
-                <TabsContent value="group">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Users className="h-5 w-5 text-blue-600" />
-                        권한 그룹 관리
-                      </CardTitle>
-                      <CardDescription>
-                        사용자를 드래그하여 그룹에 추가하거나 제거할 수 있습니다.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {/* 새 그룹 추가 섹션 */}
-                      <div className="mb-6 pb-6 border-b">
-                        <h4 className="font-medium text-gray-900 mb-4">새 그룹 추가</h4>
-                        <div className="flex gap-3 items-end">
-                          <div className="flex-1 max-w-xs">
-                            <Label htmlFor="new-group-name">그룹 이름</Label>
-                            <Input
-                              id="new-group-name"
-                              placeholder="예: 마케터, 개발자"
-                              value={newGroupName}
-                              onChange={e => setNewGroupName(e.target.value)}
-                            />
-                          </div>
-                          <Button onClick={handleAddGroup} disabled={!newGroupName.trim() || groupNameExists} className="bg-blue-600 hover:bg-blue-700 text-white">
-                            <Plus className="h-4 w-4 mr-1" />
-                            그룹 추가
-                          </Button>
-                        </div>
-                        {groupNameExists && (
-                          <div className="text-xs text-red-600 mt-1">이미 사용 중인 그룹 이름입니다.</div>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* 전체 사용자 목록 */}
-                        <Card
-                          className={`shadow-sm transition-all ${dragOverBox === 'all' ? 'bg-green-50 border-green-300 shadow-md' : ''
-                            }`}
-                          onDragOver={e => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDragOverBox('all');
-                          }}
-                          onDragLeave={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                              setDragOverBox(null);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDropToAll();
-                            setDragOverBox(null);
-                          }}
-                        >
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base font-semibold flex items-center gap-2">
-                              <Users className="h-4 w-4" />
-                              전체 사용자
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent
-                            className={`transition-colors`}
-                            style={{
-                              minHeight: '300px',
-                              position: 'relative'
-                            }}
-                          >
-                            <Input
-                              placeholder="이름 또는 이메일로 검색"
-                              className="mb-3"
-                              value={searchTerm}
-                              onChange={e => setSearchTerm(e.target.value)}
-                            />
-                            <div className="space-y-2 overflow-y-auto" style={{ scrollBehavior: 'smooth', overscrollBehavior: 'contain' }}>
-                              {otherUsers
-                                .filter(user =>
-                                  user.user_name.includes(searchTerm) || user.email.includes(searchTerm)
-                                )
-                                .map(user => (
-                                  <div
-                                    key={user.user_id}
-                                    className={`flex items-center gap-3 p-4 rounded-lg transition-all w-full min-h-[70px] ${dragUserId === user.user_id
-                                      ? 'opacity-50 transform scale-95 bg-blue-100'
-                                      : 'hover:bg-gray-50 hover:shadow-sm'
-                                      }`}
-                                    draggable
-                                    onDragStart={() => handleDragStart(user.user_id)}
-                                    onDragEnd={handleDragEnd}
-                                    onDrag={(e) => {
-                                      // 드래그 중에도 스크롤 허용
-                                      e.preventDefault()
-                                      document.body.style.overflow = 'auto'
-                                    }}
-                                    style={{
-                                      cursor: dragUserId === user.user_id ? 'grabbing' : 'grab',
-                                      touchAction: 'pan-y',
-                                      userSelect: 'none',
-                                      WebkitUserSelect: 'none',
-                                      MozUserSelect: 'none',
-                                      msUserSelect: 'none',
-                                      pointerEvents: 'auto'
-                                    }}
-                                  >
-                                    <Avatar className="h-8 w-8 flex-shrink-0">
-                                      <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">
-                                        {user.user_name.charAt(0)}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                      <p className="font-medium text-sm truncate">{user.user_name}</p>
-                                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                                    </div>
-                                    <div className="flex items-center gap-1 flex-shrink-0">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleUserDetail(user)
-                                        }}
-                                        className="h-6 w-6 p-0"
-                                      >
-                                        <Eye className="h-3 w-3" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleUserTeamAssignment(user)
-                                        }}
-                                        className="h-6 w-6 p-0"
-                                      >
-                                        <Users className="h-3 w-3" />
-                                      </Button>
-
-                                    </div>
-                                  </div>
-                                ))}
-                              {otherUsers
-                                .filter(user =>
-                                  user.user_name.includes(searchTerm) || user.email.includes(searchTerm)
-                                ).length === 0 && (
-                                  <div className="text-center py-8 text-gray-500">
-                                    <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                    <p className="text-sm">할당되지 않은 사용자가 없습니다.</p>
-                                  </div>
-                                )}
+            <div className="w-full max-w-5xl mx-auto">
+              <Card className="shadow">
+                <CardHeader className="pb-0 pt-0 px-0">
+                  <div className="flex">
+                    <button
+                      onClick={() => setActiveTab("group")}
+                      className={`flex-1 py-3 rounded-tl-lg border-b-0 text-base font-semibold transition-all duration-200 focus:outline-none border-r
+                        ${activeTab === "group"
+                          ? "bg-white text-blue-600 border-x border-t border-blue-600 z-10"
+                          : "bg-gray-100 text-gray-500 border-x border-t border-b border-gray-200 hover:text-blue-600"}
+                      `}
+                    >
+                      <Users className="inline-block mr-1 h-4 w-4 align-text-bottom" />
+                      권한 그룹 관리
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("hf")}
+                      className={`flex-1 py-3 border-b-0 text-base font-semibold transition-all duration-200 focus:outline-none border-r
+                        ${activeTab === "hf"
+                          ? "bg-white text-yellow-600 border-x border-t border-yellow-500 z-10"
+                          : "bg-gray-100 text-gray-500 border-x border-t border-b border-gray-200 hover:text-yellow-600"}
+                      `}
+                    >
+                      <Key className="inline-block mr-1 h-4 w-4 align-text-bottom" />
+                      허깅페이스 토큰
+                    </button>
+                  </div>
+                </CardHeader>
+                <CardContent className="border-t-0 bg-white p-6 rounded-b-lg">
+                  {activeTab === "group" && (
+                    <>
+                      {/* 그룹 관리 카드 내용 */}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Users className="h-5 w-5 text-blue-600" />
+                            권한 그룹 관리
+                          </CardTitle>
+                          <CardDescription>
+                            사용자를 드래그하여 그룹에 추가하거나 제거할 수 있습니다
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {/* 새 그룹 추가 섹션 */}
+                          <div className="mb-6 pb-6 border-b">
+                            <h4 className="font-medium text-gray-900 mb-4">새 그룹 추가</h4>
+                            <div className="flex gap-3 items-end">
+                              <div className="flex-1 max-w-xs">
+                                <Label htmlFor="new-group-name">그룹 이름</Label>
+                                <Input
+                                  id="new-group-name"
+                                  placeholder="예: 마케터, 개발자"
+                                  value={newGroupName}
+                                  onChange={e => setNewGroupName(e.target.value)}
+                                />
+                              </div>
+                              <Button onClick={handleAddGroup} disabled={!newGroupName.trim() || groupNameExists} className="bg-blue-600 hover:bg-blue-700 text-white">
+                                <Plus className="h-4 w-4 mr-1" />
+                                그룹 추가
+                              </Button>
                             </div>
-                          </CardContent>
-                        </Card>
-
-                        {/* 권한 그룹들 */}
-                        <div className="lg:col-span-2 space-y-4">
-                          {teams.map(team => (
-                            <Card
-                              key={team.group_id}
-                              className={`shadow-sm transition-all ${dragOverBox === `group-${team.group_id}` ? 'bg-green-50 border-green-300 shadow-md' : ''
-                                }`}
-                              onDragOver={e => {
-                                e.preventDefault();
-                                setDragOverBox(`group-${team.group_id}`);
-                                setSelectedGroupId(team.group_id);
-                              }}
-                              onDragLeave={() => setDragOverBox(null)}
-                              onDrop={() => {
-                                handleDropToGroup();
-                                setDragOverBox(null);
-                              }}
-                            >
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`w-3 h-3 rounded-full ${team.group_id === 0 ? 'bg-red-500' :
-                                      team.group_name === 'Editor' ? 'bg-blue-500' : 'bg-green-500'
-                                      }`}></div>
-                                    <div>
-                                      <CardTitle className="text-base font-semibold">{team.group_name}</CardTitle>
-                                      <p className="text-sm text-gray-500">
-                                        {team.group_description || `${team.users?.length || 0}명의 사용자`}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Badge variant="secondary" className="text-xs">
-                                      {team.users?.length || 0}명
-                                    </Badge>
-                                    {team.group_id !== 1 && (
-                                      <AlertDialog>
-                                        <AlertDialogTrigger asChild>
-                                          <Button
-                                            size="icon"
-                                            variant="ghost"
-                                            className="h-8 w-8"
-                                          >
-                                            <Trash2 className="h-4 w-4 text-red-500" />
-                                          </Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                          <AlertDialogHeader>
-                                            <AlertDialogTitle>팀 삭제 확인</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                              정말 '{team.group_name}' 팀을 삭제하시겠습니까?
-                                              {team.users && team.users.length > 0 && (
-                                                <span className="block mt-2 text-red-600 font-medium">
-                                                  ⚠️ 이 팀에는 {team.users.length}명의 사용자가 있습니다.
-                                                  삭제하기 전에 모든 사용자를 다른 팀으로 이동해주세요.
-                                                </span>
-                                              )}
-                                            </AlertDialogDescription>
-                                          </AlertDialogHeader>
-                                          <AlertDialogFooter>
-                                            <AlertDialogCancel>취소</AlertDialogCancel>
-                                            <AlertDialogAction
-                                              onClick={() => handleDeleteGroup(team.group_id)}
-                                              className="bg-red-600 hover:bg-red-700"
-                                            >
-                                              삭제
-                                            </AlertDialogAction>
-                                          </AlertDialogFooter>
-                                        </AlertDialogContent>
-                                      </AlertDialog>
-                                    )}
-                                  </div>
+                            {groupNameExists && (
+                              <div className="text-xs text-red-600 mt-1">이미 사용 중인 그룹 이름입니다.</div>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 lg:grid-cols-8 gap-6">
+                            {/* 전체 사용자 목록 */}
+                            <Card style={{ height: '1080px', display: 'flex', flexDirection: 'column' }} className="lg:col-span-3">
+                              <CardHeader className="pb-3 pt-6" style={{ flexShrink: 0 }}>
+                                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                  <Users className="h-4 w-4" />
+                                  전체 사용자
+                                </CardTitle>
+                                {/* 사용자 검색 필터 */}
+                                <div className="mt-3">
+                                  <Input
+                                    placeholder="이름 또는 이메일로 검색"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    className="max-w-xs"
+                                  />
                                 </div>
                               </CardHeader>
                               <CardContent
-                                className={`min-h-[120px] transition-colors`}
+                                className="transition-colors"
+                                style={{ flex: 1, overflow: 'hidden' }}
                               >
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                  {(team.users || []).map(user => (
-                                    <div
-                                      key={user.user_id}
-                                      className={`flex items-center gap-2 p-3 rounded-lg transition-all w-full h-full min-h-[50px] ${dragUserId === user.user_id
-                                        ? 'opacity-50 transform scale-95 bg-blue-100'
-                                        : 'hover:bg-white hover:shadow-sm border border-gray-100'
-                                        }`}
-                                      draggable
-                                      onDragStart={() => {
-                                        handleDragStart(user.user_id);
-                                        setSelectedGroupId(team.group_id);
-                                      }}
-                                      onDragEnd={handleDragEnd}
-                                      onDrag={(e) => {
-                                        e.preventDefault()
-                                        document.body.style.overflow = 'auto'
-                                      }}
-                                      style={{
-                                        cursor: dragUserId === user.user_id ? 'grabbing' : 'grab',
-                                        touchAction: 'pan-y',
-                                        userSelect: 'none',
-                                        WebkitUserSelect: 'none',
-                                        MozUserSelect: 'none',
-                                        msUserSelect: 'none',
-                                        pointerEvents: 'auto'
-                                      }}
-                                    >
-                                      <Avatar className="h-6 w-6 flex-shrink-0">
-                                        <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
-                                          {user.user_name.charAt(0)}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                        <p className="font-medium text-xs truncate">{user.user_name}</p>
-                                        <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                                      </div>
-                                      <div className="flex items-center gap-1 flex-shrink-0">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={e => {
-                                            e.stopPropagation();
-                                            handleUserDetail(user);
-                                          }}
-                                          className="h-6 w-6 p-0"
+                                <div className="space-y-4 h-full overflow-y-auto custom-scrollbar border border-gray-200 rounded-lg shadow-inner px-2 py-2">
+                                  {allUsers
+                                    .filter(user =>
+                                      user.user_name.includes(searchTerm) || user.email.includes(searchTerm)
+                                    )
+                                    .sort((a, b) => {
+                                      // 팀에 속하지 않는 사용자를 최상단으로 정렬
+                                      const aInTeam = teams.some(team => team.users?.some(u => u.user_id === a.user_id))
+                                      const bInTeam = teams.some(team => team.users?.some(u => u.user_id === b.user_id))
+
+                                      if (!aInTeam && bInTeam) return -1
+                                      if (aInTeam && !bInTeam) return 1
+                                      return 0
+                                    })
+                                    .map(user => {
+                                      // 팀에 속하지 않는 사용자인지 확인
+                                      const isNotInTeam = !teams.some(team => team.users?.some(u => u.user_id === user.user_id))
+
+                                      return (
+                                        <div
+                                          key={user.user_id}
+                                          draggable
+                                          onDragStart={(e) => handleDragStart(e, user)}
+                                          onDragEnd={handleDragEnd}
+                                          className="flex items-center gap-3 p-4 rounded-lg transition-all w-full min-h-[70px] hover:bg-blue-50 hover:shadow-md hover:scale-[1.02] border border-transparent hover:border-blue-200"
                                         >
-                                          <Eye className="h-3 w-3" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={e => {
-                                            e.stopPropagation();
-                                            handleUserTeamAssignment(user);
-                                          }}
-                                          className="h-6 w-6 p-0"
-                                        >
-                                          <Users className="h-3 w-3" />
-                                        </Button>
-                                        <AlertDialog>
-                                          <AlertDialogTrigger asChild>
+                                          <Avatar className="h-8 w-8 flex-shrink-0">
+                                            <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">
+                                              {user.user_name.charAt(0)}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                            <p className={`font-medium text-sm truncate ${isNotInTeam ? 'text-orange-600' : ''}`} title={user.user_name}>
+                                              {user.user_name}
+                                            </p>
+                                            <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                            {isNotInTeam && (
+                                              <p className="text-xs text-orange-500 font-medium">팀 미소속</p>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1 flex-shrink-0">
                                             <Button
                                               variant="ghost"
                                               size="sm"
-                                              onClick={e => e.stopPropagation()}
-                                              className="h-6 w-6 p-0 text-orange-500 hover:text-orange-700"
-                                              title="팀에서 제거"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleUserDetail(user)
+                                              }}
+                                              className="h-6 w-6 p-0"
                                             >
-                                              <ShieldX className="h-3 w-3" />
+                                              <Eye className="h-3 w-3" />
                                             </Button>
-                                          </AlertDialogTrigger>
-                                          <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                              <AlertDialogTitle>팀에서 사용자 제거</AlertDialogTitle>
-                                              <AlertDialogDescription>
-                                                정말 이 사용자를 현재 팀에서 제거하시겠습니까?
-                                              </AlertDialogDescription>
-                                            </AlertDialogHeader>
-                                            <AlertDialogFooter>
-                                              <AlertDialogCancel>취소</AlertDialogCancel>
-                                              <AlertDialogAction
-                                                onClick={() => handleRemoveUserFromTeam(user.user_id, team.group_id)}
-                                                className="bg-orange-600 hover:bg-orange-700"
-                                              >
-                                                제거
-                                              </AlertDialogAction>
-                                            </AlertDialogFooter>
-                                          </AlertDialogContent>
-                                        </AlertDialog>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleUserTeamAssignment(user)
+                                              }}
+                                              className="h-6 w-6 p-0"
+                                            >
+                                              <Users className="h-3 w-3" />
+                                            </Button>
+
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  {allUsers
+                                    .filter(user =>
+                                      user.user_name.includes(searchTerm) || user.email.includes(searchTerm)
+                                    ).length === 0 && (
+                                      <div className="text-center py-8 text-gray-500">
+                                        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                        <p className="text-sm">할당되지 않은 사용자가 없습니다.</p>
                                       </div>
-                                    </div>
-                                  ))}
-                                  {(!team.users || team.users.length === 0) && (
-                                    <div className="col-span-2 text-center py-4 text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
-                                      <p className="text-sm">사용자를 여기에 드래그하세요</p>
-                                    </div>
-                                  )}
+                                    )}
                                 </div>
                               </CardContent>
                             </Card>
-                          ))}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-                <TabsContent value="hf">
-                  <Card className="mb-0">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Key className="h-5 w-5 text-yellow-600" />
-                        허깅페이스 토큰 관리
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {/* 새 토큰 추가 섹션 */}
-                      <div className="mb-6 pb-6 border-b">
-                        <h4 className="font-medium text-gray-900 mb-4">새 토큰 추가</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
-                          <div>
-                            <Label htmlFor="new-token-alias">별칭</Label>
-                            <Input
-                              id="new-token-alias"
-                              placeholder="예: 서비스용, 개발용"
-                              value={inputAlias}
-                              onChange={e => setInputAlias(e.target.value)}
-                              disabled={creatingToken}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="new-token-username">허깅페이스 사용자명</Label>
-                            <Input
-                              id="new-token-username"
-                              placeholder="허깅페이스 계정명"
-                              value={inputUsername}
-                              onChange={e => setInputUsername(e.target.value)}
-                              disabled={creatingToken}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="new-token-value">토큰</Label>
-                            <Input
-                              id="new-token-value"
-                              type="password"
-                              placeholder="hf_..."
-                              value={inputToken}
-                              onChange={e => setInputToken(e.target.value)}
-                              disabled={creatingToken}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="team-select">팀 할당 (선택사항)</Label>
-                            <select
-                              id="team-select"
-                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                              value={selectedTeamForToken || ""}
-                              onChange={e => setSelectedTeamForToken(e.target.value ? Number(e.target.value) : null)}
-                              disabled={creatingToken}
-                            >
-                              <option value="">할당하지 않음</option>
-                              {teams.map(team => (
-                                <option key={team.group_id} value={team.group_id}>
-                                  {team.group_name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="flex justify-end mt-4">
-                          <Button
-                            onClick={handleCreateHFToken}
-                            disabled={!inputAlias.trim() || !inputToken.trim() || !inputUsername.trim() || aliasExists || creatingToken}
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                          >
-                            {creatingToken ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                생성 중...
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="h-4 w-4 mr-1" />
-                                토큰 생성
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                        {aliasExists && (
-                          <div className="text-xs text-red-600 mt-1">이미 사용 중인 별칭입니다.</div>
-                        )}
-                        {usernameExists && (
-                          <div className="text-xs text-red-600 mt-1">이미 등록된 사용자명입니다.</div>
-                        )}
-                      </div>
-                      {/* 토큰 리스트 */}
-                      {loadingTokens ? (
-                        <div className="flex items-center justify-center py-12">
-                          <div className="text-center">
-                            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-                            <p className="text-gray-600">토큰을 불러오는 중...</p>
-                          </div>
-                        </div>
-                      ) : hfTokens.length === 0 ? (
-                        <div className="text-center py-8 text-gray-400">
-                          <Key className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">등록된 토큰이 없습니다. 새 토큰을 추가해보세요.</p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                          {/* 할당되지 않은 토큰들 */}
-                          <Card className={`shadow-sm transition-all ${dragOverTokenBox === 'unassigned-tokens' ? 'bg-green-50 border-green-300 shadow-md' : ''}`}>
-                            <CardHeader className="pb-3">
-                              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                                <Key className="h-4 w-4 text-yellow-600" />
-                                할당되지 않은 토큰 ({hfTokens.filter(t => !t.group_id).length})
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="transition-colors" style={{ minHeight: '200px' }}>
-                              <div className="text-xs text-gray-500 mb-2">
-                                토큰을 <span className="font-semibold text-blue-600">클릭</span>하여 상세 정보를 확인하세요.
-                              </div>
-                              <div className="space-y-2 overflow-y-auto mt-4">
-                                {hfTokens
-                                  .filter(token => !token.group_id)
-                                  .map((token) => (
-                                    <div
-                                      key={token.hf_manage_id}
-                                      className="flex items-center gap-3 p-4 rounded-lg transition-all w-full min-h-[50px] bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 cursor-pointer"
-                                      onClick={() => {
-                                        setSelectedTokenDetail(token);
-                                        setIsTokenDetailOpen(true);
-                                      }}
-                                    >
-                                      <div className="flex-1">
-                                        <div className="font-medium text-yellow-800">{token.hf_token_nickname}</div>
-                                        <div className="text-xs text-gray-500">사용자: {token.hf_user_name}</div>
-                                        {token.hf_token_masked && (
-                                          <div className="text-xs text-gray-400">{token.hf_token_masked}</div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                {hfTokens.filter(t => !t.group_id).length === 0 && (
-                                  <div className="text-center py-4 text-gray-400">
-                                    <p className="text-sm">할당되지 않은 토큰이 없습니다.</p>
+
+                            {/* 권한 그룹들 */}
+                            <div className="lg:col-span-5">
+                              <Card style={{ height: '1080px', display: 'flex', flexDirection: 'column' }}>
+                                <CardHeader className="pb-3 pt-6" style={{ flexShrink: 0 }}>
+                                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                    <Users className="h-4 w-4" />
+                                    전체 팀
+                                  </CardTitle>
+                                  {/* 팀 검색 필터 */}
+                                  <div className="mt-3">
+                                    <Input
+                                      placeholder="팀 이름으로 검색..."
+                                      value={teamSearchTerm}
+                                      onChange={e => setTeamSearchTerm(e.target.value)}
+                                      className="max-w-xs"
+                                    />
                                   </div>
-                                )}
+                                </CardHeader>
+                                <CardContent
+                                  className="transition-colors"
+                                  style={{ flex: 1, overflow: 'hidden' }}
+                                >
+                                  {/* 팀 리스트 스크롤 컨테이너 */}
+                                  <div className="h-full overflow-y-auto custom-scrollbar space-y-4 py-2 px-2 border border-gray-200 rounded-lg shadow-inner">
+                                    {teams
+                                      .filter(team =>
+                                        team.group_name.toLowerCase().includes(teamSearchTerm.toLowerCase()) ||
+                                        team.group_description?.toLowerCase().includes(teamSearchTerm.toLowerCase())
+                                      )
+                                      .map(team => (
+                                        <Card
+                                          key={team.group_id}
+                                          onDragOver={(e) => handleDragOver(e, team.group_id)}
+                                          onDragLeave={handleDragLeave}
+                                          onDrop={(e) => handleDrop(e, team.group_id)}
+                                          className={`transition-all duration-300 ${dragOverTeam === team.group_id ? 'ring-2 ring-blue-500 bg-blue-50 border-blue-300 shadow-lg' : ''}`}
+                                        >
+                                          <CardHeader className="pb-2">
+                                            <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-3">
+                                                <div className={`w-3 h-3 rounded-full ${team.group_id === 0 ? 'bg-red-500' :
+                                                  team.group_name === 'Editor' ? 'bg-blue-500' : 'bg-green-500'
+                                                  }`}></div>
+                                                <div>
+                                                  <CardTitle className="text-sm font-semibold">{team.group_name}</CardTitle>
+                                                  <p className="text-xs text-gray-500">
+                                                    {team.group_description || `${team.users?.length || 0}명의 사용자`}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <Badge variant="secondary" className="text-xs">
+                                                  {team.users?.length || 0}명
+                                                </Badge>
+                                                {team.group_id !== 1 && (
+                                                  <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="h-6 w-6"
+                                                      >
+                                                        <Trash2 className="h-3 w-3 text-red-500" />
+                                                      </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                      <AlertDialogHeader>
+                                                        <AlertDialogTitle>팀 삭제 확인</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                          정말 '{team.group_name}' 팀을 삭제하시겠습니까?
+                                                          {team.users && team.users.length > 0 && (
+                                                            <span className="block mt-2 text-red-600 font-medium">
+                                                              ⚠️ 이 팀에는 {team.users.length}명의 사용자가 있습니다.
+                                                              삭제하기 전에 모든 사용자를 다른 팀으로 이동해주세요.
+                                                            </span>
+                                                          )}
+                                                        </AlertDialogDescription>
+                                                      </AlertDialogHeader>
+                                                      <AlertDialogFooter>
+                                                        <AlertDialogCancel>취소</AlertDialogCancel>
+                                                        <AlertDialogAction
+                                                          onClick={() => handleDeleteGroup(team.group_id)}
+                                                          className="bg-red-600 hover:bg-red-700"
+                                                        >
+                                                          삭제
+                                                        </AlertDialogAction>
+                                                      </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                  </AlertDialog>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </CardHeader>
+                                          <CardContent
+                                            className={`transition-colors`}
+                                          >
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                                              {(team.users || []).map(user => (
+                                                <div
+                                                  key={user.user_id}
+                                                  className="flex items-center gap-2 p-3 rounded-lg transition-all w-full h-full min-h-[50px] hover:bg-white hover:shadow-sm border border-gray-100"
+                                                  style={{ userSelect: 'none' }}
+                                                >
+                                                  <Avatar className="h-6 w-6 flex-shrink-0">
+                                                    <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
+                                                      {user.user_name.charAt(0)}
+                                                    </AvatarFallback>
+                                                  </Avatar>
+                                                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                                    <p className="font-medium text-xs truncate">{user.user_name}</p>
+                                                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                                  </div>
+                                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                                    <AlertDialog>
+                                                      <AlertDialogTrigger asChild>
+                                                        <Button
+                                                          variant="ghost"
+                                                          size="sm"
+                                                          onClick={e => e.stopPropagation()}
+                                                          className="h-6 w-6 p-0 text-orange-500 hover:text-orange-700"
+                                                          title="팀에서 제거"
+                                                        >
+                                                          <ShieldX className="h-3 w-3" />
+                                                        </Button>
+                                                      </AlertDialogTrigger>
+                                                      <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                          <AlertDialogTitle>팀에서 사용자 제거</AlertDialogTitle>
+                                                          <AlertDialogDescription>
+                                                            정말 이 사용자를 현재 팀에서 제거하시겠습니까?
+                                                          </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                          <AlertDialogCancel>취소</AlertDialogCancel>
+                                                          <AlertDialogAction
+                                                            onClick={() => handleRemoveUserFromTeam(user.user_id, team.group_id)}
+                                                            className="bg-orange-600 hover:bg-orange-700"
+                                                          >
+                                                            제거
+                                                          </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                      </AlertDialogContent>
+                                                    </AlertDialog>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                              {(!team.users || team.users.length === 0) && (
+                                                <div className="col-span-2 text-center py-4 text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
+                                                  <p className="text-sm">사용자가 없습니다</p>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      ))}
+
+                                    {/* 검색 결과가 없을 때 */}
+                                    {teams.filter(team =>
+                                      team.group_name.toLowerCase().includes(teamSearchTerm.toLowerCase()) ||
+                                      team.group_description?.toLowerCase().includes(teamSearchTerm.toLowerCase())
+                                    ).length === 0 && teamSearchTerm && (
+                                        <div className="text-center py-8 text-gray-500">
+                                          <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                          <p className="text-sm">검색 결과가 없습니다.</p>
+                                          <p className="text-xs text-gray-400 mt-1">다른 검색어를 시도해보세요.</p>
+                                        </div>
+                                      )}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
+                  {activeTab === "hf" && (
+                    <>
+                      {/* 허깅페이스 토큰 카드 내용 */}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Key className="h-5 w-5 text-yellow-600" />
+                            허깅페이스 토큰 관리
+                          </CardTitle>
+                          <CardDescription>
+                            AI 모델 사용을 위한 토큰을 관리하세요
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {/* 새 토큰 추가 섹션 */}
+                          <div className="mb-6 pb-6 border-b">
+                            <h4 className="font-medium text-gray-900 mb-4">새 토큰 추가</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                              <div>
+                                <Label htmlFor="new-token-alias">별칭</Label>
+                                <Input
+                                  id="new-token-alias"
+                                  placeholder="예: 서비스용, 개발용"
+                                  value={inputAlias}
+                                  onChange={e => setInputAlias(e.target.value)}
+                                  disabled={creatingToken}
+                                />
                               </div>
-                            </CardContent>
-                          </Card>
+                              <div>
+                                <Label htmlFor="new-token-username">허깅페이스 사용자명</Label>
+                                <Input
+                                  id="new-token-username"
+                                  placeholder="허깅페이스 계정명"
+                                  value={inputUsername}
+                                  onChange={e => setInputUsername(e.target.value)}
+                                  disabled={creatingToken}
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="new-token-value">토큰</Label>
+                                <Input
+                                  id="new-token-value"
+                                  type="password"
+                                  placeholder="hf_..."
+                                  value={inputToken}
+                                  onChange={e => setInputToken(e.target.value)}
+                                  disabled={creatingToken}
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="team-select">팀 할당 (선택사항)</Label>
+                                <div className="relative">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setIsTeamDropdownOpen(!isTeamDropdownOpen)}
+                                    disabled={creatingToken}
+                                    className="w-full justify-between h-9 px-3 py-1 text-sm border border-gray-300 bg-white hover:bg-gray-50"
+                                  >
+                                    <span className="text-left">
+                                      {selectedTeamForToken
+                                        ? teams.find(t => t.group_id === selectedTeamForToken)?.group_name
+                                        : "팀을 선택하세요"}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                                  </Button>
 
-                          {/* 팀별 할당된 토큰들 */}
-                          <div className="lg:col-span-2 space-y-4">
-                            {teams.map(team => {
-                              const teamTokens = hfTokens.filter(t => t.group_id === team.group_id)
-                              if (teamTokens.length === 0) return null
-
-                              return (
-                                <Card key={team.group_id} className="shadow-sm">
-                                  <CardHeader className="pb-3">
-                                    <CardTitle className="text-base font-semibold flex items-center gap-2">
-                                      <div className={`w-3 h-3 rounded-full ${team.group_id === 1 ? 'bg-red-500' : 'bg-green-500'
-                                        }`}></div>
-                                      {team.group_name} ({teamTokens.length}개 토큰)
-                                    </CardTitle>
-                                  </CardHeader>
-                                  <CardContent>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      {teamTokens.map((token) => (
+                                  {isTeamDropdownOpen && (
+                                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                                      <div
+                                        className="px-3 py-2 text-sm text-gray-500 hover:bg-gray-100 cursor-pointer border-b"
+                                        onClick={() => {
+                                          setSelectedTeamForToken(null)
+                                          setIsTeamDropdownOpen(false)
+                                        }}
+                                      >
+                                        할당하지 않음
+                                      </div>
+                                      {teams.map(team => (
+                                        <div
+                                          key={team.group_id}
+                                          className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                                          onClick={() => {
+                                            setSelectedTeamForToken(team.group_id)
+                                            setIsTeamDropdownOpen(false)
+                                          }}
+                                        >
+                                          {team.group_name}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex justify-end mt-4">
+                              <Button
+                                onClick={handleCreateHFToken}
+                                disabled={!inputAlias.trim() || !inputToken.trim() || !inputUsername.trim() || aliasExists || creatingToken}
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                              >
+                                {creatingToken ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                    생성 중...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="h-4 w-4 mr-1" />
+                                    토큰 생성
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            {aliasExists && (
+                              <div className="text-xs text-red-600 mt-1">이미 사용 중인 별칭입니다.</div>
+                            )}
+                            {usernameExists && (
+                              <div className="text-xs text-red-600 mt-1">이미 등록된 사용자명입니다.</div>
+                            )}
+                          </div>
+                          {/* 토큰 리스트 */}
+                          {loadingTokens ? (
+                            <div className="flex items-center justify-center py-12">
+                              <div className="text-center">
+                                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+                                <p className="text-gray-600">토큰을 불러오는 중...</p>
+                              </div>
+                            </div>
+                          ) : hfTokens.length === 0 ? (
+                            <div className="text-center py-8 text-gray-400">
+                              <Key className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                              <p className="text-sm">등록된 토큰이 없습니다. 새 토큰을 추가해보세요.</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                              {/* 할당되지 않은 토큰들 */}
+                              <Card className="shadow-sm transition-all">
+                                <CardHeader className="pb-3">
+                                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                    <Key className="h-4 w-4 text-yellow-600" />
+                                    할당되지 않은 토큰 ({hfTokens.filter(t => !t.group_id).length})
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent className="transition-colors" style={{ minHeight: '200px' }}>
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    토큰을 <span className="font-semibold text-blue-600">클릭</span>하여 상세 정보를 확인하세요.
+                                  </div>
+                                  <div className="space-y-2 mt-4">
+                                    {hfTokens
+                                      .filter(token => !token.group_id)
+                                      .map((token) => (
                                         <div
                                           key={token.hf_manage_id}
-                                          className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 cursor-pointer"
+                                          className="flex items-center gap-3 p-4 rounded-lg transition-all w-full min-h-[50px] bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 cursor-pointer"
                                           onClick={() => {
                                             setSelectedTokenDetail(token);
                                             setIsTokenDetailOpen(true);
                                           }}
                                         >
-                                          <div className="flex-1">
-                                            <div className="font-medium text-blue-800 text-sm">{token.hf_token_nickname}</div>
-                                            <div className="text-xs text-gray-500">{token.hf_user_name}</div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="font-medium text-yellow-800 truncate">{token.hf_token_nickname}</div>
+                                            <div className="text-xs text-gray-500 truncate">사용자: {token.hf_user_name}</div>
+                                            {token.created_at && (
+                                              <div className="text-xs text-gray-400">
+                                                생성일: {new Date(token.created_at).toLocaleDateString('ko-KR')}
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
                                       ))}
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              )
-                            })}
+                                    {hfTokens.filter(t => !t.group_id).length === 0 && (
+                                      <div className="text-center py-4 text-gray-400">
+                                        <p className="text-sm">할당되지 않은 토큰이 없습니다.</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </CardContent>
+                              </Card>
 
-                            {hfTokens.filter(t => t.group_id).length === 0 && (
-                              <div className="text-center py-8 text-gray-400">
-                                <Key className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                <p className="text-sm">팀에 할당된 토큰이 없습니다.</p>
+                              {/* 팀별 할당된 토큰들 */}
+                              <div className="lg:col-span-2 space-y-4">
+                                {teams.map(team => {
+                                  const teamTokens = hfTokens.filter(t => t.group_id === team.group_id)
+                                  if (teamTokens.length === 0) return null
+
+                                  return (
+                                    <Card key={team.group_id} className="shadow-sm">
+                                      <CardHeader className="pb-3">
+                                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                          <div className={`w-3 h-3 rounded-full ${team.group_id === 1 ? 'bg-red-500' : 'bg-green-500'
+                                            }`}></div>
+                                          {team.group_name} ({teamTokens.length}개 토큰)
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                          {teamTokens.map((token) => (
+                                            <div
+                                              key={token.hf_manage_id}
+                                              className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 cursor-pointer"
+                                              onClick={() => {
+                                                setSelectedTokenDetail(token);
+                                                setIsTokenDetailOpen(true);
+                                              }}
+                                            >
+                                              <div className="flex-1 min-w-0">
+                                                <div className="font-medium text-blue-800 text-sm truncate">{token.hf_token_nickname}</div>
+                                                <div className="text-xs text-gray-500 truncate">사용자: {token.hf_user_name}</div>
+                                                {token.created_at && (
+                                                  <div className="text-xs text-gray-400">
+                                                    생성일: {new Date(token.created_at).toLocaleDateString('ko-KR')}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  )
+                                })}
+
+                                {hfTokens.filter(t => t.group_id).length === 0 && (
+                                  <div className="text-center py-8 text-gray-400">
+                                    <Key className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                    <p className="text-sm">팀에 할당된 토큰이 없습니다.</p>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
               <div className="h-8" />
               {/* 그룹 상세/사용자 관리 (모달로 이동) */}
               <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -1100,9 +1131,6 @@ export default function AdministratorPage() {
                       <CardContent
                         className="pt-0"
                         style={{ minHeight: 280 }}
-                        onDragOver={e => { e.preventDefault(); setDragOverBox('all'); }}
-                        onDragLeave={() => setDragOverBox(null)}
-                        onDrop={handleDropToAll}
                       >
                         <Input
                           placeholder="이름 또는 이메일로 검색"
@@ -1110,30 +1138,13 @@ export default function AdministratorPage() {
                           value={searchTerm}
                           onChange={e => setSearchTerm(e.target.value)}
                         />
-                        <ul className="divide-y max-h-60 overflow-y-auto rounded">
-                          {otherUsers.filter(user =>
+                        <ul className="divide-y rounded">
+                          {allUsers.filter(user =>
                             user.user_name.includes(searchTerm) || user.email.includes(searchTerm)
                           ).map(user => (
                             <li
                               key={user.user_id}
-                              className={`flex items-center gap-3 py-3 px-3 rounded transition-shadow bg-white w-full h-full min-h-[50px] hover:bg-gray-50`}
-                              draggable
-                              onDragStart={() => handleDragStart(user.user_id)}
-                              onDragEnd={handleDragEnd}
-                              onDrag={(e) => {
-                                // 드래그 중에도 스크롤 허용
-                                e.preventDefault()
-                                document.body.style.overflow = 'auto'
-                              }}
-                              style={{
-                                cursor: dragUserId === user.user_id ? 'grabbing' : 'grab',
-                                touchAction: 'pan-y',
-                                userSelect: 'none',
-                                WebkitUserSelect: 'none',
-                                MozUserSelect: 'none',
-                                msUserSelect: 'none',
-                                pointerEvents: 'auto'
-                              }}
+                              className="flex items-center gap-3 py-3 px-3 rounded transition-shadow bg-white w-full h-full min-h-[50px] hover:bg-gray-50"
                             >
                               <User className="h-4 w-4 text-gray-500 flex-shrink-0" />
                               <div className="flex-1 min-w-0 flex flex-col justify-center">
@@ -1142,7 +1153,7 @@ export default function AdministratorPage() {
                               </div>
                             </li>
                           ))}
-                          {otherUsers.filter(user =>
+                          {allUsers.filter(user =>
                             user.user_name.includes(searchTerm) || user.email.includes(searchTerm)
                           ).length === 0 && (
                               <li className="text-sm text-gray-400 py-4 text-center">추가 가능한 사용자가 없습니다.</li>
@@ -1158,32 +1169,12 @@ export default function AdministratorPage() {
                       <CardContent
                         className="pt-0"
                         style={{ minHeight: 280 }}
-                        onDragOver={e => { e.preventDefault(); setDragOverBox('group'); }}
-                        onDragLeave={() => setDragOverBox(null)}
-                        onDrop={handleDropToGroup}
                       >
-                        <ul className="divide-y max-h-60 overflow-y-auto rounded">
+                        <ul className="divide-y rounded">
                           {teamUsers.map(user => (
                             <li
                               key={user.user_id}
-                              className={`flex items-center gap-3 py-3 px-3 rounded transition-shadow bg-white w-full h-full min-h-[50px] hover:bg-gray-50`}
-                              draggable
-                              onDragStart={() => handleDragStart(user.user_id)}
-                              onDragEnd={handleDragEnd}
-                              onDrag={(e) => {
-                                // 드래그 중에도 스크롤 허용
-                                e.preventDefault()
-                                document.body.style.overflow = 'auto'
-                              }}
-                              style={{
-                                cursor: dragUserId === user.user_id ? 'grabbing' : 'grab',
-                                touchAction: 'pan-y',
-                                userSelect: 'none',
-                                WebkitUserSelect: 'none',
-                                MozUserSelect: 'none',
-                                msUserSelect: 'none',
-                                pointerEvents: 'auto'
-                              }}
+                              className="flex items-center gap-3 py-3 px-3 rounded transition-shadow bg-white w-full h-full min-h-[50px] hover:bg-gray-50"
                             >
                               <User className="h-4 w-4 text-gray-500 flex-shrink-0" />
                               <div className="flex-1 min-w-0 flex flex-col justify-center">
@@ -1550,15 +1541,6 @@ export default function AdministratorPage() {
                       </div>
 
                       <div className="flex justify-end gap-2 pt-4">
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setIsUserDetailOpen(false)
-                            handleUserTeamAssignment(selectedUserDetail)
-                          }}
-                        >
-                          팀 할당
-                        </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button variant="destructive">사용자 삭제</Button>
@@ -1647,7 +1629,7 @@ export default function AdministratorPage() {
                   )}
                 </DialogContent>
               </Dialog>
-            </>
+            </div>
           )}
         </div>
       </div>

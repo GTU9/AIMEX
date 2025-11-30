@@ -35,6 +35,8 @@ class StylePresetBase(BaseModel):
     influencer_style: str
     influencer_personality: str
     influencer_speech: str
+    influencer_description: Optional[str] = None
+    system_prompt: Optional[str] = None
 
 
 class StylePresetCreate(StylePresetBase):
@@ -56,6 +58,13 @@ class StylePreset(StylePresetBase, TimestampSchema):
     style_preset_id: str
 
 
+class StylePresetWithMBTI(StylePreset):
+    """MBTI 정보가 포함된 스타일 프리셋 스키마"""
+    mbti_name: Optional[str] = None
+    mbti_traits: Optional[str] = None
+    mbti_speech: Optional[str] = None
+
+
 # AIInfluencer 스키마
 class AIInfluencerBase(BaseModel):
     user_id: str
@@ -70,6 +79,7 @@ class AIInfluencerBase(BaseModel):
     learning_status: int
     influencer_model_repo: str
     chatbot_option: bool
+    system_prompt: Optional[str] = None
     # Instagram 연동 정보
     instagram_id: Optional[str] = None
     instagram_username: Optional[str] = None
@@ -91,28 +101,27 @@ class AIInfluencerCreate(BaseSchema):
     learning_status: int = 0
     influencer_model_repo: str = ""
     chatbot_option: bool = False
-    
+
     # 프리셋 자동 생성을 위한 추가 필드들
     personality: Optional[str] = None  # 성격
-    tone: Optional[str] = None         # 말투
-    model_type: Optional[str] = None   # 모델 타입
-    mbti: Optional[str] = None         # MBTI
-    gender: Optional[str] = None       # 성별
-    age: Optional[str] = None          # 나이
-    hair_style: Optional[str] = None   # 헤어스타일
-    mood: Optional[str] = None         # 분위기/스타일
-    system_prompt: Optional[str] = None # 시스템 프롬프트
-    
+    tone: Optional[str] = None  # 말투
+    model_type: Optional[str] = None  # 모델 타입
+    mbti: Optional[str] = None  # MBTI
+    gender: Optional[str] = None  # 성별
+    age: Optional[str] = None  # 나이
+    hair_style: Optional[str] = None  # 헤어스타일
+    mood: Optional[str] = None  # 분위기/스타일
+    system_prompt: Optional[str] = None  # 시스템 프롬프트
+
     # 말투 정보 필드들
-    tone_type: Optional[str] = None    # "system" 또는 "custom"
-    tone_data: Optional[str] = None    # 선택된 시스템 프롬프트 또는 사용자 입력 데이터
+    tone_type: Optional[str] = None  # "system" 또는 "custom"
+    tone_data: Optional[str] = None  # 선택된 시스템 프롬프트 또는 사용자 입력 데이터
 
 
 class AIInfluencerUpdate(BaseModel):
     hf_manage_id: Optional[str] = None
     style_preset_id: Optional[str] = None
     mbti_id: Optional[int] = None
-    hf_manage_id: Optional[str] = None
     influencer_name: Optional[str] = None
     influencer_description: Optional[str] = None
     image_url: Optional[str] = None
@@ -120,6 +129,13 @@ class AIInfluencerUpdate(BaseModel):
     learning_status: Optional[int] = None
     influencer_model_repo: Optional[str] = None
     chatbot_option: Optional[bool] = None
+    # 인플루언서 개성 관련 필드들
+    influencer_personality: Optional[str] = None
+    influencer_tone: Optional[str] = None
+    influencer_age_group: Optional[int] = None
+    voice_option: Optional[bool] = None
+    image_option: Optional[bool] = None
+    system_prompt: Optional[str] = None
 
 
 class AIInfluencer(AIInfluencerBase, TimestampSchema):
@@ -151,6 +167,7 @@ class BatchKey(BatchKeyBase):
 class ChatMessageBase(BaseModel):
     influencer_id: str
     message_content: str
+    message_type: str = "user"  # user 또는 ai
     end_at: datetime
 
 
@@ -159,7 +176,8 @@ class ChatMessageCreate(ChatMessageBase):
 
 
 class ChatMessage(ChatMessageBase):
-    session_id: int
+    chat_message_id: str
+    session_id: str
     created_at: datetime
 
 
@@ -200,13 +218,6 @@ class APICallAggregation(APICallAggregationBase, TimestampSchema):
     api_call_id: str
 
 
-# 파인튜닝 웹훅 요청 스키마
-class FinetuningWebhookRequest(BaseModel):
-    task_id: str
-    influencer_id: str
-    status: str  # FineTuningStatus의 문자열 값
-    hf_model_url: Optional[str] = None
-    error_message: Optional[str] = None
 
 
 # 말투 생성 요청 스키마
@@ -218,6 +229,7 @@ class ToneGenerationRequest(BaseModel):
     gender: Optional[str] = None
     age: Optional[str] = None
     tone_type: Optional[str] = None
+    num_tones: Optional[int] = 3  # 생성할 어투 개수 (기본 3개)
 
 
 # 생성된 어투 스키마
@@ -242,3 +254,54 @@ class GeneratedTone(GeneratedToneBase, TimestampSchema):
 class SystemPromptSaveRequest(BaseModel):
     type: str  # "system" 또는 "custom"
     data: str  # system_prompt 또는 custom 입력 데이터
+
+
+# API 키 관리 관련 스키마 추가
+
+
+class APIKeyResponse(BaseModel):
+    """API 키 응답 스키마"""
+
+    influencer_id: str
+    api_key: str
+    message: str
+    created_at: str
+    influencer_name: str
+
+
+class APIKeyInfo(BaseModel):
+    """API 키 정보 스키마"""
+
+    influencer_id: str
+    api_key: str
+    created_at: datetime
+    updated_at: datetime
+    influencer_name: str
+
+
+class APIKeyUsage(BaseModel):
+    """API 키 사용량 스키마"""
+
+    influencer_id: str
+    influencer_name: str
+    today_calls: int
+    total_calls: int
+    api_key_created_at: datetime
+    api_key_updated_at: datetime
+    usage_limit: dict
+
+
+class APIKeyTestRequest(BaseModel):
+    """API 키 테스트 요청 스키마"""
+
+    message: str = "안녕하세요!"
+
+
+class APIKeyTestResponse(BaseModel):
+    """API 키 테스트 응답 스키마"""
+
+    success: bool
+    response: str
+    influencer_name: str
+    test_message: str
+    timestamp: str

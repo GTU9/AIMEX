@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog"
 
 export default function DashboardPage() {
+  const fetchedRef = useRef(false)
   const [influencers, setInfluencers] = useState<AIInfluencer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -54,13 +55,17 @@ export default function DashboardPage() {
       return
     }
 
+    // 중복 API 호출 방지
+    if (fetchedRef.current) return
+    fetchedRef.current = true
+
     const fetchInfluencers = async () => {
       try {
         setLoading(true)
         const data = await ModelService.getInfluencers()
         setInfluencers(data)
       } catch (err) {
-        console.error('Failed to fetch influencers:', err)
+        // console.error('Failed to fetch influencers:', err)
         setError('인플루언서 정보를 불러오는데 실패했습니다.')
       } finally {
         setLoading(false)
@@ -105,7 +110,7 @@ export default function DashboardPage() {
         await ModelService.deleteInfluencer(influencerId)
         setInfluencers((prev) => prev.filter((inf) => inf.influencer_id !== influencerId))
       } catch (err) {
-        console.error('Failed to delete influencer:', err)
+        // console.error('Failed to delete influencer:', err)
         setError('인플루언서 삭제에 실패했습니다.')
       }
     }
@@ -126,6 +131,12 @@ export default function DashboardPage() {
       default:
         return <Badge variant="secondary">알 수 없음</Badge>
     }
+  }
+
+  // 문자열이 너무 길면 ...으로 자르는 유틸 함수
+  function truncateText(text: string | undefined | null, maxLength = 60) {
+    if (!text) return '-';
+    return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
   }
 
   // 그룹이 할당되지 않은 사용자는 빈 대시보드 표시
@@ -287,19 +298,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
             <Card
-              className={`cursor-pointer transition-shadow ${statusFilter === "learning" ? "ring-2 ring-yellow-400" : "hover:shadow-lg"}`}
-              onClick={() => setStatusFilter("learning")}
-            >
-              <CardContent className="p-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-yellow-600">
-                    {influencers.filter((inf) => inf.learning_status === 0).length}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">생성 중</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card
               className={`cursor-pointer transition-shadow ${statusFilter === "ready" ? "ring-2 ring-green-400" : "hover:shadow-lg"}`}
               onClick={() => setStatusFilter("ready")}
             >
@@ -309,6 +307,19 @@ export default function DashboardPage() {
                     {influencers.filter((inf) => inf.learning_status === 1).length}
                   </p>
                   <p className="text-sm text-gray-600 mt-1">사용 가능</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card
+              className={`cursor-pointer transition-shadow ${statusFilter === "learning" ? "ring-2 ring-yellow-400" : "hover:shadow-lg"}`}
+              onClick={() => setStatusFilter("learning")}
+            >
+              <CardContent className="p-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-yellow-600">
+                    {influencers.filter((inf) => inf.learning_status === 0).length}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">생성 중</p>
                 </div>
               </CardContent>
             </Card>
@@ -368,18 +379,18 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-sm font-medium text-gray-700">성격</p>
                       <p className="text-sm text-gray-600">
-                        {influencer.style_preset?.influencer_personality || '-'}
+                        {truncateText(influencer.style_preset?.influencer_personality)}
                       </p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-700">말투</p>
                       <p className="text-sm text-gray-600">
-                        {influencer.style_preset?.influencer_speech || '-'}
+                        {truncateText(influencer.style_preset?.influencer_speech)}
                       </p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-700">MBTI</p>
-                      <p className="text-sm text-gray-600">{influencer.mbti?.mbti_name || '-'}</p>
+                      <p className="text-sm text-gray-600">{truncateText(influencer.mbti?.mbti_name)}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-700">챗봇 옵션</p>
@@ -394,7 +405,7 @@ export default function DashboardPage() {
                           <PlatformBadge
                             platform="instagram"
                             isConnected={!!influencer.instagram_is_active}
-                            username={influencer.instagram_username}
+                            username={truncateText(influencer.instagram_username)}
                           />
                         ) : (
                           <span className="text-gray-400 text-sm">-</span>
@@ -418,8 +429,17 @@ export default function DashboardPage() {
 
           {filteredInfluencers.length === 0 && !loading && (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-lg">검색 결과가 없습니다.</p>
-              <p className="text-gray-400 mt-2">다른 검색어를 시도해보세요.</p>
+              {searchTerm || platformFilter !== "all" ? (
+                <>
+                  <p className="text-gray-500 text-lg">검색 결과가 없습니다.</p>
+                  <p className="text-gray-400 mt-2">다른 검색어를 시도해보세요.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-500 text-lg">생성된 인플루언서가 없습니다.</p>
+                  <p className="text-gray-400 mt-2">새로운 AI 인플루언서를 생성해보세요.</p>
+                </>
+              )}
             </div>
           )}
         </div>

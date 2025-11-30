@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from sqlalchemy.orm import Session
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 import json
 import logging
 import os
+import hmac
+import hashlib
 
 from app.database import get_db
 from app.models.influencer import AIInfluencer
+from app.models.conversation import Conversation, ConversationMessage
 from app.schemas.instagram import (
     InstagramConnectRequest, 
     InstagramConnectResponse, 
@@ -21,7 +24,12 @@ from app.schemas.instagram import (
 )
 from app.core.instagram_service import InstagramService
 from app.core.security import get_current_user
-from app.services.vllm_client import vllm_generate_response, vllm_health_check, vllm_load_adapter_if_needed
+from app.services.runpod_manager import get_vllm_manager
+from app.services.hf_token_resolver import get_token_for_influencer
+from app.services.conversation_service import ConversationService
+from app.core.config import settings
+import time
+
 
 router = APIRouter()
 instagram_service = InstagramService()
@@ -304,19 +312,73 @@ async def verify_instagram_connection(
             detail=f"인스타그램 연동 검증에 실패했습니다: {str(e)}"
         )
 
+async def verify_webhook_signature(
+    request: Request,
+    x_hub_signature_256: Optional[str] = Header(None)
+) -> bool:
+    """Instagram 웹훅 서명 검증"""
+    try:
+        if not x_hub_signature_256:
+            logger.warning("⚠️ X-Hub-Signature-256 헤더가 없습니다.")
+            return False
+        
+        # 설정에서 Instagram App Secret 가져오기
+        app_secret = settings.INSTAGRAM_APP_SECRET
+        if not app_secret:
+            logger.error("❌ INSTAGRAM_APP_SECRET이 설정되지 않았습니다.")
+            return False
+        
+        # 요청 본문을 바이트로 가져오기
+        body_bytes = await request.body()
+        
+        # HMAC-SHA256 서명 생성
+        expected_signature = hmac.new(
+            app_secret.encode('utf-8'),
+            body_bytes,
+            hashlib.sha256
+        ).hexdigest()
+        
+        # "sha256=" 접두사 추가
+        expected_signature = f"sha256={expected_signature}"
+        
+        # 서명 비교 (timing attack 방지를 위해 hmac.compare_digest 사용)
+        is_valid = hmac.compare_digest(expected_signature, x_hub_signature_256)
+        
+        if is_valid:
+            logger.info("✅ 웹훅 서명 검증 성공")
+        else:
+            logger.warning(f"❌ 웹훅 서명 검증 실패")
+            logger.debug(f"   - 예상 서명: {expected_signature}")
+            logger.debug(f"   - 받은 서명: {x_hub_signature_256}")
+        
+        return is_valid
+        
+    except Exception as e:
+        logger.error(f"❌ 웹훅 서명 검증 중 오류 발생: {str(e)}")
+        return False
+
 @router.post("/dm/webhook")
 async def instagram_dm_webhook(
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_hub_signature_256: Optional[str] = Header(None)
 ):
     """인스타그램 DM 웹훅 엔드포인트 - 인스타그램에서 DM 메시지를 받아 AI 인플루언서가 자동 답변"""
     try:
+        # 웹훅 서명 검증
+        if not await verify_webhook_signature(request, x_hub_signature_256):
+            # 개발 환경에서는 경고만 출력하고 계속 진행
+            if settings.ENVIRONMENT == "production":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid webhook signature"
+                )
+            else:
+                logger.warning("⚠️ 개발 환경: 웹훅 서명 검증 실패했지만 계속 진행합니다.")
+        
         # 웹훅 데이터 파싱
         body = await request.json()
         logger.info(f"📨 Instagram DM 웹훅 수신: {json.dumps(body, indent=2, ensure_ascii=False)}")
-        
-        # 웹훅 검증 (개발 단계에서는 생략 가능)
-        # TODO: 실제 운영에서는 웹훅 서명 검증 필요
         
         # 메시지 이벤트 처리
         processed_events = 0
@@ -422,8 +484,9 @@ async def handle_instagram_dm_event(messaging_event: Dict, db: Session):
             
             # AI 응답 생성
             logger.info("🧠 AI 응답 생성 시작...")
-            ai_response = await generate_ai_response(message_text, influencer, sender_id, db)
+            ai_response, generation_info = await generate_ai_response(message_text, influencer, sender_id, db)
             logger.info(f"🧠 AI 응답 생성 완료: {ai_response[:100]}...")
+            logger.info(f"📊 생성 정보: 모델={generation_info.get('model_used')}, 시간={generation_info.get('generation_time_ms')}ms")
             
             # 인스타그램으로 DM 응답 전송
             logger.info("📤 DM 응답 전송 시작...")
@@ -445,9 +508,40 @@ async def handle_instagram_dm_event(messaging_event: Dict, db: Session):
         import traceback
         logger.error(f"   - 에러 트레이스: {traceback.format_exc()}")
 
-async def generate_ai_response(message_text: str, influencer: AIInfluencer, sender_id: str, db: Session) -> str:
-    """AI 인플루언서 응답 생성 - vLLM 서버 활용"""
+async def generate_ai_response(message_text: str, influencer: AIInfluencer, sender_id: str, db: Session) -> Tuple[str, Dict]:
+    """AI 인플루언서 응답 생성 - vLLM 서버 활용 + 대화 기록 관리"""
+    start_time = time.time()
+    generation_info = {
+        "model_used": None,
+        "generation_time_ms": None,
+        "system_prompt_used": None
+    }
+    
     try:
+        # 대화 서비스 초기화
+        conversation_service = ConversationService(db)
+        
+        # 대화 세션 조회/생성
+        conversation = conversation_service.get_or_create_conversation(
+            influencer_id=influencer.influencer_id,
+            user_instagram_id=sender_id
+        )
+        
+        # 사용자 메시지 저장
+        conversation_service.add_message(
+            conversation_id=conversation.conversation_id,
+            sender_type="user",
+            sender_instagram_id=sender_id,
+            message_text=message_text
+        )
+        
+        # 대화 기록을 포함한 컨텍스트 생성
+        chat_history = conversation_service.build_chat_context(
+            conversation_id=conversation.conversation_id,
+            max_messages=8,  # 최근 8개 메시지 (사용자 4 + AI 4)
+            max_tokens=1500  # 토큰 제한
+        )
+        
         # 인플루언서 개성 정보 활용
         personality = influencer.influencer_personality or "친근하고 도움이 되는 AI 인플루언서"
         tone = influencer.influencer_tone or "친근하고 자연스러운 말투"
@@ -459,106 +553,130 @@ async def generate_ai_response(message_text: str, influencer: AIInfluencer, send
         else:
             # 기본 시스템 메시지 생성 (저장된 프롬프트가 없는 경우)
             system_message = f"""당신은 {influencer.influencer_name}라는 AI 인플루언서입니다.
-        
+
 성격: {personality}
 말투: {tone}
-        
+
 다음 규칙을 따라 응답해주세요:
-1. 친근하고 자연스러운 톤으로 대화하세요
+1. 자연스러운 톤으로 대화하세요
 2. 답변은 2-3문장으로 간결하게 해주세요
 3. 인스타그램 DM이므로 이모지를 적절히 사용하세요
 4. {influencer.influencer_name}의 개성을 살려서 응답하세요
-5. 도움이 되는 정보를 제공하되 너무 길지 않게 해주세요"""
+5. 도움이 되는 정보를 제공하되 너무 길지 않게 해주세요
+6. 이전 대화 내용을 참고해서 자연스럽게 대화를 이어가세요"""
             logger.info("⚠️ 저장된 시스템 프롬프트가 없어 기본 시스템 메시지 사용")
+        
+        generation_info["system_prompt_used"] = system_message
         
         # vLLM 서버를 통한 AI 응답 생성
         try:
-            # vLLM 서버 상태 확인
-            if not await vllm_health_check():
+            # vLLM 매니저 가져오기 및 서버 상태 확인
+            vllm_manager = get_vllm_manager()
+            if not await vllm_manager.simple_health_check():
                 logger.warning("⚠️ vLLM 서버에 접근할 수 없습니다. 기본 응답을 사용합니다.")
-                return f"안녕하세요! {influencer.influencer_name}입니다! 😊 메시지 감사해요! 더 자세히 말씀해주시면 도움드릴게요!"
-            
-            # 파인튜닝된 모델이 있는 경우 해당 모델 사용
-            model_id = None
-            if influencer.influencer_model_repo:
-                logger.info(f"🤖 인플루언서 전용 모델 사용: {influencer.influencer_model_repo}")
-                model_id = influencer.influencer_model_repo
-                
-                # 필요시 어댑터 로드
-                hf_token = await get_hf_token_from_influencer_group(influencer, db)
-                
-                adapter_loaded = await vllm_load_adapter_if_needed(
-                    model_id=model_id,
-                    hf_repo_name=model_id,
-                    hf_token=hf_token
-                )
-                
-                if not adapter_loaded:
-                    logger.warning(f"⚠️ 어댑터 로드 실패: {model_id}. 기본 모델을 사용합니다.")
-                    model_id = None
+                response = f"안녕하세요! {influencer.influencer_name}입니다! 😊 메시지 감사해요! 더 자세히 말씀해주시면 도움드릴게요!"
+                generation_info["model_used"] = "fallback"
             else:
-                logger.info(f"🤖 기본 AI 모델로 응답 생성")
-            
-            # vLLM 서버로 응답 생성 요청
-            response = await vllm_generate_response(
-                user_message=message_text,
-                system_message=system_message,
-                influencer_name=influencer.influencer_name,
-                model_id=model_id,
-                max_new_tokens=300,
-                temperature=0.7
-            )
-            
-            # 응답 후처리
-            response = response.strip()
-            
-            # 너무 길면 자르기 (DM은 간결해야 함)
-            if len(response) > 300:
-                response = response[:300] + "..."
-            
-            # 빈 응답인 경우 기본 응답 제공
-            if not response:
-                response = f"안녕하세요! {influencer.influencer_name}입니다! 😊 메시지 감사해요!"
-            
-            logger.info(f"✅ vLLM 서버를 통한 AI 응답 생성 완료")
-            return response
+                # 파인튜닝된 모델이 있는 경우 해당 모델 사용
+                model_repo = None
+                if influencer.influencer_model_repo:
+                    logger.info(f"🤖 인플루언서 전용 모델 사용: {influencer.influencer_model_repo}")
+                    model_repo = influencer.influencer_model_repo
+                    generation_info["model_used"] = model_repo
+                else:
+                    logger.info(f"🤖 기본 AI 모델로 응답 생성")
+                    generation_info["model_used"] = "base_model"
                 
+                # HuggingFace 토큰 조회
+                hf_token = None
+                hf_username = None
+                if influencer.hf_manage_id or influencer.group_id:
+                    try:
+                        # get_token_for_influencer는 (복호화된_토큰, 사용자명) 튜플을 반환
+                        hf_token, hf_username = await get_token_for_influencer(influencer, db)
+                        if hf_token:
+                            logger.info(f"✅ HF 토큰 조회 완료 (사용자: {hf_username})")
+                        else:
+                            logger.warning("⚠️ HF 토큰을 찾을 수 없습니다")
+                    except Exception as token_error:
+                        logger.warning(f"⚠️ HF 토큰 조회 실패: {token_error}")
+                
+                # 메시지 구성 (대화 기록 포함)
+                messages = []
+                if system_message:
+                    messages.append({"role": "system", "content": system_message})
+                
+                # 대화 기록 추가 (최근 메시지가 맨 마지막에 오도록)
+                messages.extend(chat_history)
+                
+                # RunPod vLLM worker에 맞는 페이로드 구성
+                payload = {
+                    "input": {
+                        "hf_token": hf_token or "dummy_token",
+                        "hf_repo": model_repo or "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct",
+                        "system_message": system_message,
+                        "prompt": message_text,
+                        "temperature": 0.8,
+                        "max_tokens": 2048,
+                        "top_p": 0.9,
+                        "top_k": 50,
+                        "repetition_penalty": 1.1
+                    }
+                }
+                
+                # vLLM 매니저로 응답 생성 요청
+                logger.info(f"🚀 payload: {payload}")
+                logger.info(f"🚀 vLLM runsync 요청 시작...")
+                result = await vllm_manager.runsync(payload)
+                
+                # 결과에서 텍스트 추출
+                response = result
+                
+                # 너무 길면 자르기 (DM은 간결해야 함)
+                if len(response) > 300:
+                    response = response[:300] + "..."
+                
+                # 빈 응답인 경우 기본 응답 제공
+                if not response:
+                    response = f"안녕하세요! {influencer.influencer_name}입니다! 😊 메시지 감사해요!"
+                
+                logger.info(f"✅ vLLM 서버를 통한 AI 응답 생성 완료: {len(response)} chars")
+        
         except Exception as model_error:
             logger.error(f"❌ vLLM 서버 응답 생성 실패: {str(model_error)}")
             # vLLM 서버 실패 시 기본 응답
-            return f"안녕하세요! {influencer.influencer_name}입니다! 😊 메시지 감사해요! 더 자세히 말씀해주시면 도움드릴게요!"
+            response = f"안녕하세요! {influencer.influencer_name}입니다! 😊 메시지 감사해요! 더 자세히 말씀해주시면 도움드릴게요!"
+            generation_info["model_used"] = "error_fallback"
+        
+        # 생성 시간 계산
+        generation_time_ms = int((time.time() - start_time) * 1000)
+        generation_info["generation_time_ms"] = generation_time_ms
+        
+        # AI 응답 메시지 저장
+        conversation_service.add_message(
+            conversation_id=conversation.conversation_id,
+            sender_type="ai",
+            sender_instagram_id=influencer.instagram_id,
+            message_text=response,
+            generation_time_ms=generation_time_ms,
+            model_used=generation_info["model_used"],
+            system_prompt_used=generation_info["system_prompt_used"]
+        )
+        
+        logger.info(f"✅ AI 응답 생성 및 DB 저장 완료 - 시간: {generation_time_ms}ms")
+        return response, generation_info
             
     except Exception as e:
         logger.error(f"❌ AI 응답 생성 오류: {str(e)}")
-        return f"안녕하세요! {influencer.influencer_name}입니다! 😅 죄송해요, 지금 응답을 생성하는 중에 문제가 생겼어요. 다시 한 번 말씀해주시겠어요?"
+        fallback_response = f"안녕하세요! {influencer.influencer_name}입니다! 😅 죄송해요, 지금 응답을 생성하는 중에 문제가 생겼어요. 다시 한 번 말씀해주시겠어요?"
+        
+        # 에러 정보 기록
+        generation_info["generation_time_ms"] = int((time.time() - start_time) * 1000)
+        generation_info["model_used"] = "error"
+        
+        return fallback_response, generation_info
 
 
-async def get_hf_token_from_influencer_group(influencer: AIInfluencer, db: Session) -> str:
-    """인플루언서의 그룹에서 허깅페이스 토큰 가져오기"""
-    try:
-        from app.models.user import HFTokenManage
-        from app.core.encryption import decrypt_sensitive_data
-        
-        logger.info(f"🔍 그룹 ID {influencer.group_id}의 허깅페이스 토큰 조회 중...")
-        
-        # 해당 그룹의 허깅페이스 토큰 조회 (최신 생성순으로 정렬)
-        hf_token_manage = db.query(HFTokenManage).filter(
-            HFTokenManage.group_id == influencer.group_id
-        ).order_by(HFTokenManage.created_at.desc()).first()
-        
-        if not hf_token_manage:
-            logger.warning(f"⚠️ 그룹 ID {influencer.group_id}에 대한 허깅페이스 토큰을 찾을 수 없습니다.")
-            return None
-        
-        # 암호화된 토큰 복호화
-        decrypted_token = decrypt_sensitive_data(hf_token_manage.hf_token_value)
-        logger.info(f"✅ 허깅페이스 토큰 조회 성공 (사용자: {hf_token_manage.hf_user_name})")
-        
-        return decrypted_token
-        
-    except Exception as e:
-        logger.error(f"❌ 허깅페이스 토큰 조회 실패: {str(e)}")
-        return None
 
 async def send_instagram_dm(recipient_id: str, message_text: str, access_token: str) -> bool:
     """인스타그램 DM 전송"""
@@ -582,8 +700,8 @@ async def instagram_dm_webhook_verification(
 ):
     """인스타그램 웹훅 검증 엔드포인트"""
     try:
-        # 웹훅 검증 토큰 (환경변수에서 가져오기)
-        WEBHOOK_VERIFY_TOKEN = os.getenv("WEBHOOK_VERIFY_TOKEN")
+        # 웹훅 검증 토큰 (설정에서 가져오기)
+        WEBHOOK_VERIFY_TOKEN = settings.WEBHOOK_VERIFY_TOKEN
         
         # 쿼리 파라미터 직접 추출
         hub_mode = request.query_params.get("hub.mode")

@@ -8,10 +8,14 @@ from sqlalchemy import (
     Text,
     SmallInteger,
     TIMESTAMP,
+    DateTime,
 )
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 # User-Team 다대다 관계 테이블 (실제 DB 구조에 맞춤)
 user_group = Table(
@@ -42,11 +46,25 @@ class User(Base, TimestampMixin):
     provider = Column(String(20), nullable=False, comment="소셜 로그인 제공자")
     user_name = Column(String(20), nullable=False, comment="사용자 이름")
     email = Column(String(50), nullable=False, unique=True, comment="사용자 이메일")
+    
+    # Pod 세션 관리 컬럼들 (새로 추가)
+    current_pod_id = Column(String(100), nullable=True, comment="현재 활성 RunPod ID")
+    pod_status = Column(String(20), default="none", comment="Pod 상태: none, starting, ready, processing")
+    session_created_at = Column(DateTime(timezone=True), nullable=True, comment="세션 생성 시간")
+    session_expires_at = Column(DateTime(timezone=True), nullable=True, comment="세션 만료 시간 (15분)")
+    processing_expires_at = Column(DateTime(timezone=True), nullable=True, comment="처리 만료 시간 (10분)")
+    total_generations = Column(Integer, default=0, comment="총 이미지 생성 횟수")
 
     # 관계
     teams = relationship("Team", secondary=user_group, back_populates="users")
     system_logs = relationship("SystemLog", back_populates="user")
     ai_influencers = relationship("AIInfluencer", back_populates="user")
+    # 이미지 저장소와의 관계는 Team을 통해 관리됨
+    
+    def __repr__(self):
+        """User 객체 로깅용 문자열 표현"""
+        logger.info(f"👤 User 조회됨: user_id={self.user_id}, user_name={self.user_name}, teams_count={len(self.teams) if self.teams else 0}")
+        return f"<User(user_id={self.user_id}, user_name={self.user_name})>"
 
 
 
@@ -65,6 +83,7 @@ class Team(Base, TimestampMixin):
     users = relationship("User", secondary=user_group, back_populates="teams")
     hf_tokens = relationship("HFTokenManage", back_populates="team")
     ai_influencers = relationship("AIInfluencer", back_populates="team")
+    # image_storages = relationship("ImageStorage", back_populates="group")  # Temporarily disabled for session fix
 
 
 class HFTokenManage(Base, TimestampMixin):
@@ -92,6 +111,9 @@ class HFTokenManage(Base, TimestampMixin):
     )
     hf_user_name = Column(
         String(50), nullable=False, comment="허깅페이스 계정 사용자 이름"
+    )
+    is_default = Column(
+        Boolean, nullable=False, default=False, comment="그룹의 기본 토큰 여부"
     )
 
     # 관계

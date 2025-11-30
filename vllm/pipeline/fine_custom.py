@@ -1,7 +1,6 @@
 # EXAONE 3.5 2.4B LoRA 파인튜닝 예시 코드 (수정됨)
 
 import torch
-import json
 from transformers import (
     AutoModelForCausalLM, 
     AutoTokenizer, 
@@ -15,16 +14,11 @@ from datasets import Dataset
 from huggingface_hub import HfApi
 import os
 import logging
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# GPU manager removed - using device_map='auto' instead
 
 logger = logging.getLogger(__name__)
-
-# GPU 설정 확인
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# Hugging Face 토큰 및 repo_id 설정 (환경 변수에서 가져오기)
-
-
 class ExaoneDataPreprocessor:
     def __init__(self, tokenizer, max_length=2048):
         self.tokenizer = tokenizer
@@ -81,27 +75,7 @@ def find_all_linear_names(model):
     return list(lora_module_names)
 
 def load_model_and_tokenizer(model_name="LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"):
-    """모델과 토크나이저 로드"""
-    print("모델과 토크나이저 로딩 중...")
-    
-    # GPU 할당 확인
-    from pipeline.gpu_utils import find_available_gpu, log_gpu_status
-    
-    # 현재 GPU 상태 로깅
-    log_gpu_status()
-    
-    # 사용 가능한 GPU 찾기
-    available_gpu = find_available_gpu(min_memory_mb=10240)  # 10GB 이상 여유 메모리
-    
-    if available_gpu is not None:
-        # 특정 GPU만 사용하도록 설정
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(available_gpu)
-        print(f"파인튜닝에 GPU {available_gpu} 사용")
-        device_map = "auto"  # 단일 GPU에서 auto는 전체 모델을 해당 GPU에 로드
-    else:
-        # 사용 가능한 GPU가 없으면 기본 동작
-        print("경고: 여유 있는 GPU를 찾을 수 없습니다. 기본 설정 사용")
-        device_map = "auto"
+    """모델과 토크나이저 로드 - 환경 변수 기반 GPU 지정"""
     
     # 토크나이저 로드
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -111,13 +85,25 @@ def load_model_and_tokenizer(model_name="LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"):
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
     
-    # 모델 로드 - gradient checkpointing 문제 해결을 위한 수정된 설정
+    # GPU 설정
+    finetuning_gpu_id = int(os.getenv('FINETUNING_GPU_ID', '2'))
+    
+    # CUDA_VISIBLE_DEVICES로 격리된 경우
+    if 'CUDA_VISIBLE_DEVICES' in os.environ:
+        device_map = {"": 0}  # 격리된 환경에서는 항상 device 0 사용
+        logger.info(f"🔧 격리된 GPU 환경 사용 (CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']})")
+    else:
+        # 격리되지 않은 경우 특정 GPU 지정
+        device_map = {"": finetuning_gpu_id}
+        logger.info(f"🔧 GPU {finetuning_gpu_id} 사용")
+    
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
         device_map=device_map,
         use_cache=False,  # 그래디언트 체크포인팅과 호환성을 위해
+        low_cpu_mem_usage=True,  # CPU 메모리 사용량 최소화
     )
     
     # gradient checkpointing을 여기서 먼저 활성화
@@ -151,8 +137,8 @@ def setup_lora_config(model):
     
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
-        r=8,  # rank를 줄여서 안정성 확보
-        lora_alpha=16,  # alpha도 줄임
+        r=4,  # rank를 더 줄여서 메모리 절약
+        lora_alpha=8,  # alpha도 더 줄임
         lora_dropout=0.05,
         target_modules=attention_modules,
         bias="none",
@@ -174,24 +160,35 @@ def prepare_dataset(tokenizer, qa_data: list[dict], system_message: str, max_len
     for i, item in enumerate(qa_data):
         # 이미 변환된 데이터인지 확인 (messages 키가 있는 경우)
         if "messages" in item:
-            # 이미 변환된 형식에서 question/answer 추출
             messages = item["messages"]
-            question = ""
-            answer = ""
             
-            for msg in messages:
-                if msg.get("role") == "user":
-                    question = msg.get("content", "")
-                elif msg.get("role") == "assistant":
-                    answer = msg.get("content", "")
-            
-            if question and answer:
-                formatted_text = preprocessor.create_chat_format(
-                    question, 
-                    answer,
-                    system_msg=system_message
+            # 멀티턴 대화인 경우 전체 대화를 하나의 텍스트로 처리
+            if len(messages) > 3:  # system + 최소 1턴 이상의 대화
+                # 토크나이저의 채팅 템플릿을 사용해 전체 대화를 포맷팅
+                formatted_text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=False
                 )
                 formatted_data.append({"text": formatted_text})
+            else:
+                # 단일 턴 대화 처리 (기존 로직)
+                question = ""
+                answer = ""
+                
+                for msg in messages:
+                    if msg.get("role") == "user":
+                        question = msg.get("content", "")
+                    elif msg.get("role") == "assistant":
+                        answer = msg.get("content", "")
+                
+                if question and answer:
+                    formatted_text = preprocessor.create_chat_format(
+                        question, 
+                        answer,
+                        system_msg=system_message
+                    )
+                    formatted_data.append({"text": formatted_text})
         else:
             # 원시 QA 형식
             question = item.get("question", "")
@@ -247,6 +244,7 @@ def prepare_dataset(tokenizer, qa_data: list[dict], system_message: str, max_len
 
 def setup_training_arguments(training_epochs: int, output_dir="./exaone-lora-results-system-custom"):
     """훈련 인수 설정"""
+    
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=1,
@@ -262,7 +260,7 @@ def setup_training_arguments(training_epochs: int, output_dir="./exaone-lora-res
         metric_for_best_model="loss",
         greater_is_better=False,  
         bf16=True,
-        gradient_checkpointing=False, 
+        gradient_checkpointing=True,  # 메모리 절약을 위해 활성화
         dataloader_pin_memory=False,
         remove_unused_columns=False,
         report_to="none",
@@ -270,7 +268,7 @@ def setup_training_arguments(training_epochs: int, output_dir="./exaone-lora-res
         optim="adamw_torch",
         max_grad_norm=1.0,
         dataloader_num_workers=0, 
-        save_total_limit=1,
+        save_total_limit=1, 
     )
     
     return training_args
@@ -279,7 +277,7 @@ def upload_to_huggingface(output_dir, hf_token, hf_repo_id):
     """파인튜닝된 모델을 Hugging Face Hub에 업로드"""
     if not hf_token:
         print("HF_TOKEN이 설정되지 않아 업로드를 건너뜁니다.")
-        return f"https://huggingface.co/{hf_repo_id}"  # 토큰이 없어도 URL은 반환
+        return hf_repo_id  # 레포 경로만 반환
     
     try:
         print(f"\n=== Hugging Face Hub 업로드 시작 ===")
@@ -304,7 +302,7 @@ def upload_to_huggingface(output_dir, hf_token, hf_repo_id):
             token=hf_token,
         )
         
-        print(f"✅ 업로드 완료! 모델 URL: https://huggingface.co/{hf_repo_id}")
+        print(f"✅ 업로드 완료! 모델 레포: {hf_repo_id}")
         
         # 3. 로컬 폴더 삭제
         import shutil
@@ -316,52 +314,53 @@ def upload_to_huggingface(output_dir, hf_token, hf_repo_id):
             print(f"⚠️ 로컬 폴더 삭제 실패: {cleanup_error}")
             # 삭제 실패해도 업로드는 성공했으므로 계속 진행
         
-        return f"https://huggingface.co/{hf_repo_id}"
+        return hf_repo_id  # 레포 경로만 반환
         
     except Exception as e:
         print(f"❌ 업로드 실패: {e}")
-        return f"https://huggingface.co/{hf_repo_id}"  # 실패해도 URL은 반환
+        return hf_repo_id  # 실패해도 레포 경로는 반환
 
 def cleanup_gpu_memory():
-    """GPU 메모리 정리"""
+    """GPU 메모리 정리 - PyTorch 직접 사용"""
     import gc
     
     # Python 가비지 컬렉션 강제 실행
     gc.collect()
     
-    # PyTorch GPU 캐시 정리
+    # PyTorch로 직접 GPU 메모리 정리
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-        torch.cuda.synchronize()
         print("✅ GPU 메모리 캐시 정리 완료")
 
-def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: str, training_epochs: int) -> str:
-    """메인 훈련 함수"""
-    
-    # 환경 변수 설정
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: str, training_epochs: int, gpu_id:int=None) -> str:
+    """메인 훈련 함수 - device_map='auto'로 자동 할당"""
+    # gpu_id 파라미터는 호환성을 위해 유지하지만 사용하지 않음
     
     # 시작 전 GPU 메모리 정리
     cleanup_gpu_memory()
     
+    # GPU 메모리 상태 로깅
+    if torch.cuda.is_available():
+        print(f"\n=== 파인튜닝 시작 시 GPU 상태 ===")
+        print(f"사용 가능한 GPU 수: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            print(f"GPU {i}: {props.name}, 메모리: {props.total_memory / 1024**3:.2f}GB")
+            if 'CUDA_VISIBLE_DEVICES' in os.environ:
+                print(f"CUDA_VISIBLE_DEVICES: {os.environ['CUDA_VISIBLE_DEVICES']}")
+    
     # 1. 모델과 토크나이저 로드
     model, tokenizer = load_model_and_tokenizer()
     
-    # 2. 모델 구조 확인
-    print("모델 구조 확인 중...")
-    print(f"모델 타입: {type(model)}")
     
     # 3. LoRA 설정 및 적용
     lora_config = setup_lora_config(model)
     model = get_peft_model(model, lora_config)
     
-    # 4. 훈련 가능한 파라미터 출력
-    model.print_trainable_parameters()
-    
+    # PEFT 적용 후 디바이스 확인 (device_map="auto"로 이미 할당됨)
     # 7. 데이터셋 준비
     train_dataset = prepare_dataset(tokenizer, qa_data, system_message)
     print(f"훈련 데이터셋 크기: {len(train_dataset)}")
-    
     # 데이터셋을 train/eval로 분할 (조기 종료를 위한 validation 데이터 필요)
     train_size = int(0.8 * len(train_dataset))
     eval_size = len(train_dataset) - train_size
@@ -372,6 +371,7 @@ def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: st
     print(f"훈련 데이터: {len(train_dataset_split)}, 검증 데이터: {len(eval_dataset)}")
     
     # 8. 데이터 콜레이터 설정 - 더 안전한 방식
+    
     def data_collator(features):
         """커스텀 데이터 콜레이터"""
         # 입력 길이 확인
@@ -403,13 +403,13 @@ def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: st
             batch["attention_mask"].append(attention_mask)
             batch["labels"].append(padded_labels)
         
-        # 텐서로 변환
+        # 텐서 생성 (Trainer가 자동으로 올바른 디바이스로 이동시킴)
         return {
             "input_ids": torch.tensor(batch["input_ids"], dtype=torch.long),
             "attention_mask": torch.tensor(batch["attention_mask"], dtype=torch.long),
             "labels": torch.tensor(batch["labels"], dtype=torch.long)
         }
-    
+    print("여기는 오고 안되는거야? ")
     # 9. 훈련 인수 설정
     training_args = setup_training_arguments(training_epochs)
     
@@ -418,7 +418,6 @@ def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: st
         early_stopping_patience=2,  # 2 epoch 동안 개선이 없으면 종료
         early_stopping_threshold=0.01  # 최소 개선 임계값
     )
-    
     # 11. Trainer 초기화
     trainer = Trainer(
         model=model,
@@ -426,27 +425,59 @@ def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: st
         train_dataset=train_dataset_split,
         eval_dataset=eval_dataset,
         data_collator=data_collator,
-        callbacks=[early_stopping_callback],
+        callbacks=[early_stopping_callback]
     )
     
-    # 12. 훈련 시작
-    print("훈련 시작...")
     try:
+        # GPU 메모리 상태 확인
+        if torch.cuda.is_available():
+            gpu_memory_before = torch.cuda.memory_allocated() / 1024**3
+            print(f"🔍 훈련 시작 전 GPU 메모리 사용량: {gpu_memory_before:.2f}GB")
+        
         trainer.train()
         print("훈련 완료!")
-    except Exception as e:
-        print(f"훈련 중 오류 발생: {e}")
-        
-        # 더 자세한 디버깅 정보
-        print("\n=== 추가 디버깅 정보 ===")
-        print(f"모델 타입: {type(model)}")
-        print(f"Base model 타입: {type(model.base_model) if hasattr(model, 'base_model') else 'N/A'}")
-        
-        # PEFT 설정 확인
-        if hasattr(model, 'peft_config'):
-            print(f"PEFT config: {model.peft_config}")
-        
-        raise
+    except RuntimeError as e:
+        if "out of memory" in str(e) or "CUDA out of memory" in str(e):
+            print(f"❌ GPU 메모리 부족 오류 발생: {e}")
+            
+            # GPU 메모리 상태 출력
+            if torch.cuda.is_available():
+                print(f"\n=== GPU 메모리 상태 ===")
+                print(f"할당된 메모리: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                print(f"예약된 메모리: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+                print(f"최대 할당 메모리: {torch.cuda.max_memory_allocated() / 1024**3:.2f}GB")
+                
+                # 메모리 정리 시도
+                torch.cuda.empty_cache()
+                print("GPU 메모리 캐시 정리 완료")
+            
+            # 더 작은 설정으로 재시도 제안
+            print("\n💡 해결 방법:")
+            print("1. batch_size를 줄이거나 gradient_accumulation_steps를 늘리세요")
+            print("2. max_length를 줄이세요 (현재 1024)")
+            print("3. LoRA rank를 줄이세요 (현재 8)")
+            print("4. 더 큰 GPU를 사용하세요")
+            
+            raise
+        else:
+            print(f"훈련 중 오류 발생: {e}")
+            
+            # 더 자세한 디버깅 정보
+            print("\n=== 추가 디버깅 정보 ===")
+            print(f"모델 타입: {type(model)}")
+            print(f"Base model 타입: {type(model.base_model) if hasattr(model, 'base_model') else 'N/A'}")
+            
+            # PEFT 설정 확인
+            if hasattr(model, 'peft_config'):
+                print(f"PEFT config: {model.peft_config}")
+            
+            # GPU 메모리 상태
+            if torch.cuda.is_available():
+                print(f"\n=== GPU 메모리 상태 ===")
+                print(f"할당된 메모리: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+                print(f"예약된 메모리: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+            
+            raise
     
     # 14. 모델 저장
     trainer.save_model()
@@ -478,7 +509,6 @@ def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: st
     except Exception as e:
         print(f"⚠️ 메모리 정리 중 오류 (무시됨): {e}")
     
-    # 17. HuggingFace 모델 URL 반환
-    print(f"✅ 파인튜닝 완료! 모델 URL: {hf_model_url}")
+    # 17. HuggingFace 모델 레포 경로 반환
+    print(f"✅ 파인튜닝 완료! 모델 레포: {hf_model_url}")
     return hf_model_url
-

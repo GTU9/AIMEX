@@ -2,22 +2,21 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ModelService, StylePreset, ToneGenerationRequest, ConversationExample } from "@/lib/services/model.service"
+import { ModelService, ToneGenerationRequest, ConversationExample, ModelMBTI } from "@/lib/services/model.service"
 import { useAuth } from "@/hooks/use-auth"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Upload, ArrowLeft, Lightbulb, MessageCircle, Palette, Trash2 } from "lucide-react"
+import { Upload, ArrowLeft, Lightbulb, MessageCircle, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { useToast } from "@/hooks/use-toast"
 
 interface FormDataType {
   name: string;
@@ -30,14 +29,14 @@ interface FormDataType {
   gender: string;
   age: string;
   imageMethod: string;
-  hairStyle: string;
-  mood: string;
   selectedPresetId: string;
   huggingFaceToken: string;
   systemPrompt: string;
 }
 
 export default function CreateModelPage() {
+  const { toast } = useToast()
+  const fetchedRef = useRef(false)
   const [formData, setFormData] = useState<FormDataType>({
     name: "",
     description: "",
@@ -48,9 +47,7 @@ export default function CreateModelPage() {
     mbti: "",
     gender: "",
     age: "",
-    imageMethod: "upload", // "upload" 또는 "prompt"
-    hairStyle: "",
-    mood: "",
+    imageMethod: "upload", // 항상 upload로 고정
     selectedPresetId: "manual", // 기본값을 "manual"로 설정하여 직접 입력 모드 시작
     huggingFaceToken: "",
     systemPrompt: "", // systemPrompt 필드 추가
@@ -58,6 +55,7 @@ export default function CreateModelPage() {
   const [files, setFiles] = useState({
     imageSamples: null as File[] | null,
   })
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [toneTab, setToneTab] = useState("recommend")
   const [stylePresets, setStylePresets] = useState<any[]>([])
@@ -70,29 +68,31 @@ export default function CreateModelPage() {
   const [generatedTones, setGeneratedTones] = useState<ConversationExample[]>([])
   const [huggingFaceTokens, setHuggingFaceTokens] = useState<any[]>([])
   const [loadingTokens, setLoadingTokens] = useState(false)
+  const [mbtiList, setMbtiList] = useState<ModelMBTI[]>([])
+  const [loadingMbti, setLoadingMbti] = useState(false)
+  const [toneType, setToneType] = useState<"tone" | "dialogue">("tone") // 말투 타입 추가
 
   useEffect(() => {
+    // 중복 API 호출 방지
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
     // 실제 API에서 프리셋 데이터 가져오기
     const fetchStylePresets = async () => {
       setLoadingPresets(true);
-      
+
       try {
         const presets = await ModelService.getStylePresets();
         setStylePresets(presets);
       } catch (error) {
-        console.error('❌ 프리셋 데이터 로드 실패:', error);
-        console.error('오류 상세 정보:', {
-          name: error instanceof Error ? error.name : 'Unknown',
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : 'No stack trace'
+        // 프리셋 데이터 로드 실패 처리
+        console.error('프리셋 데이터 로드 실패:', error);
+        toast({
+          title: "프리셋 로드 실패",
+          description: "스타일 프리셋을 불러오는 데 실패했습니다.",
+          variant: "destructive",
+          duration: 3000,
         });
-        
-        // 사용자에게 에러 알림
-        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-        alert(`프리셋 데이터를 불러오는데 실패했습니다.\n\n오류: ${errorMessage}`);
-        
-        // 에러 발생 시 빈 배열로 설정
-        setStylePresets([]);
       } finally {
         setLoadingPresets(false);
       }
@@ -105,37 +105,53 @@ export default function CreateModelPage() {
       }
 
       setLoadingTokens(true);
-      
+
       try {
         const tokens = await ModelService.getHuggingFaceTokens(user.teams[0].group_id);
         setHuggingFaceTokens(tokens);
+        
+        // 토큰이 있고 기본값이 설정되지 않은 경우 첫 번째 토큰을 기본값으로 설정
+        if (tokens.length > 0 && !formData.huggingFaceToken) {
+          setFormData(prev => ({ ...prev, huggingFaceToken: tokens[0].hf_manage_id }));
+        }
       } catch (error) {
-        console.error('❌ 허깅페이스 토큰 데이터 로드 실패:', error);
-        console.error('오류 상세 정보:', {
-          name: error instanceof Error ? error.name : 'Unknown',
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : 'No stack trace'
-        });
-        
-        // 사용자에게 에러 알림
-        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-        alert(`허깅페이스 토큰 데이터를 불러오는데 실패했습니다.\n\n오류: ${errorMessage}`);
-        
-        // 에러 발생 시 빈 배열로 설정
-        setHuggingFaceTokens([]);
+        // 허깅페이스 토큰 데이터 로드 실패 처리
       } finally {
         setLoadingTokens(false);
       }
     };
 
+    // MBTI 목록 가져오기
+    const fetchMbtiList = async () => {
+      setLoadingMbti(true);
+      try {
+        const mbtiData = await ModelService.getMBTIList();
+        setMbtiList(mbtiData);
+      } catch (error) {
+        // MBTI 데이터 로드 실패 처리
+      } finally {
+        setLoadingMbti(false);
+      }
+    };
+
     fetchStylePresets();
     fetchHuggingFaceTokens();
+    fetchMbtiList();
   }, [user]) // user가 변경될 때마다 토큰 다시 가져오기
 
   // 성격(personality)이 바뀌면 추천 말투 숨김
   useEffect(() => {
     setShowToneExamples(false);
   }, [formData.personality]);
+  
+  // 탭 변경 시 tone type 설정
+  useEffect(() => {
+    if (toneTab === "custom") {
+      setToneType("dialogue");
+    } else {
+      setToneType("tone");
+    }
+  }, [toneTab]);
 
   // customTone이 있으면 customTones로 마이그레이션
   useEffect(() => {
@@ -145,17 +161,34 @@ export default function CreateModelPage() {
   }, [formData.tone]);
 
   const handleInputChange = (field: string, value: string | string[]) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => {
+      // imageMethod 변경 관련 로직 제거 (항상 upload로 고정)
+      
+      // 일반적인 필드 변경
+      return {
+        ...prev,
+        [field]: value,
+      }
+    })
   }
 
-  const handleFileUpload = (type: keyof typeof files, uploadedFiles: FileList | null) => {
+  const handleFileUpload = async (type: keyof typeof files, uploadedFiles: FileList | null) => {
     if (uploadedFiles) {
-      setFiles((prev) => ({ ...prev, [type]: Array.from(uploadedFiles) }))
+      const fileArray = Array.from(uploadedFiles)
+      setFiles((prev) => ({ ...prev, [type]: fileArray }))
+      
+      // 이미지 미리보기 URL 생성
+      if (type === 'imageSamples') {
+        const urls = fileArray.map(file => URL.createObjectURL(file))
+        setImagePreviewUrls(urls)
+        // 이미지 파일들을 상태에 저장 (인플루언서 생성 시 함께 업로드)
+        // console.log('이미지 파일 선택됨:', fileArray.length, '개');
+      }
     }
   }
 
   // 프리셋 선택 핸들러
-  const handlePresetSelect = (presetId: string) => {
+  const handlePresetSelect = async (presetId: string) => {
     if (presetId === "manual") {
       setToneTab("recommend"); // 직접 입력 시 추천 말투 탭으로
       setFormData(prev => ({
@@ -171,84 +204,135 @@ export default function CreateModelPage() {
         age: "",
         hairStyle: "",
         mood: "",
+        systemPrompt: "",
+        description: "",
       }));
       setGeneratedTones([]); // 직접 입력 시 생성된 말투 초기화
       setShowToneExamples(false); // 직접 입력 시 추천 말투 숨김
       return;
     }
 
-    const selectedPreset = stylePresets.find(p => p.style_preset_id === presetId);
-    if (selectedPreset) {
-      setToneTab("custom"); // 프리셋 선택 시 직접 입력 탭으로 (프리셋 말투 확인용)
-      setFormData(prev => ({
-        ...prev,
-        selectedPresetId: presetId,
-        // 프리셋 데이터로 폼 채우기
-        modelType: selectedPreset.influencer_type === 1 ? "character" : selectedPreset.influencer_type === 2 ? "human" : "objects",
-        personality: selectedPreset.influencer_personality,
-        tone: selectedPreset.influencer_speech,
-        customTones: [selectedPreset.influencer_speech], // 프리셋 말투를 customTones에 추가
-        mbti: selectedPreset.mbti_name || "none", // MBTI는 mbti_name으로 접근
-        gender: selectedPreset.influencer_gender === 0 ? "male" : selectedPreset.influencer_gender === 1 ? "female" : "other",
-        age: selectedPreset.influencer_age_group ? String(selectedPreset.influencer_age_group * 10) : "", // 연령대 매핑
-        hairStyle: selectedPreset.influencer_hairstyle,
-        mood: selectedPreset.influencer_style,
-        imageMethod: "prompt", // 프리셋은 이미지 프롬프트 기반으로 가정
-      }));
-      // 프리셋 선택 시 생성된 말투를 프리셋 말투로 설정
-      setGeneratedTones([{
-        title: selectedPreset.style_preset_name,
-        example: "프리셋에 정의된 말투입니다.", // 실제 예시가 없으므로 임시 텍스트
-        tone: selectedPreset.influencer_speech,
-        hashtags: "", // 프리셋에 해시태그 정보가 있다면 추가
-        system_prompt: "" // 프리셋에 시스템 프롬프트 정보가 있다면 추가
-      }]);
-      setShowToneExamples(true); // 프리셋 말투 표시
+    setLoadingPresets(true);
+    try {
+      const preset = await ModelService.getStylePresetById(presetId);
+      if (preset) {
+        setToneTab("custom"); // 프리셋 선택 시 직접 입력 탭으로 (프리셋 말투 확인용)
+        setFormData(prev => ({
+          ...prev,
+          selectedPresetId: presetId,
+          name: preset.style_preset_name || "",
+          description: preset.influencer_description || "",
+          modelType: preset.influencer_type === 1 ? "character" : preset.influencer_type === 2 ? "human" : "objects",
+          personality: preset.influencer_personality || "",
+          tone: preset.influencer_speech || "",
+          customTones: [preset.influencer_speech || ""],
+          mbti: preset.mbti_id ? String(preset.mbti_id) : "none",
+          gender: String(preset.influencer_gender),
+          age: preset.influencer_age_group ? String(preset.influencer_age_group * 10) : "",
+          imageMethod: "upload", // 항상 upload로 고정
+          systemPrompt: preset.system_prompt || "",
+        }));
+        setGeneratedTones([{
+          title: preset.style_preset_name,
+          example: "프리셋에 정의된 말투입니다.",
+          tone: preset.influencer_speech,
+          hashtags: "",
+          system_prompt: preset.system_prompt || ""
+        }]);
+        setShowToneExamples(true);
+      }
+    } catch (e) {
+      toast({
+        title: "오류 발생",
+        description: "프리셋 정보를 불러오지 못했습니다.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    } finally {
+      setLoadingPresets(false);
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     // 프리셋 모드 검증
     if (formData.selectedPresetId && formData.selectedPresetId !== "manual") {
       if (!formData.selectedPresetId) {
-        alert("프리셋을 선택해주세요.")
+        toast({
+          title: "선택 필요",
+          description: "프리셋을 선택해주세요.",
+          variant: "destructive",
+          duration: 3000,
+        })
         return
       }
     } else {
       // 직접 입력 모드 검증
-      if (!formData.modelType) {
-        alert("모델 유형을 선택해주세요.");
+      if (!formData.modelType && !formData.imageMethod) {
+        toast({
+          title: "선택 필요",
+          description: "모델 유형을 선택해주세요.",
+          variant: "destructive",
+          duration: 3000,
+        });
         return;
       }
       if (!formData.personality.trim()) {
-        alert("성격을 입력해주세요.");
+        toast({
+          title: "입력 필요",
+          description: "성격을 입력해주세요.",
+          variant: "destructive",
+          duration: 3000,
+        });
         return;
       }
-      if (!formData.tone.trim() && formData.customTones.length === 0) {
-        alert("말투를 선택하거나 직접 입력해주세요.");
+      // 말투 검증: 추천 말투 탭에서는 tone 확인, 대사 입력 탭에서는 7개 이상 확인
+      if (toneTab === "recommend" && !formData.tone.trim()) {
+        toast({
+          title: "선택 필요",
+          description: "추천 말투를 선택해주세요.",
+          variant: "destructive",
+          duration: 3000,
+        });
         return;
       }
       
-      // 이미지 검증
+      if (toneTab === "custom" && formData.customTones.length < 7) {
+        toast({
+          title: "대사 부족",
+          description: `최소 7개의 대사를 입력해주세요. (현재 ${formData.customTones.length}개)`,
+          variant: "destructive",
+          duration: 3000,
+        });
+        return;
+      }
+
+      // 이미지 검증 (업로드만 허용)
       const hasImageUpload = files.imageSamples && files.imageSamples.length > 0;
-      const hasImagePrompt = formData.imageMethod === "prompt" && 
-                            formData.hairStyle.trim() !== "" && 
-                            formData.mood.trim() !== "";
-      
-      if (!hasImageUpload && !hasImagePrompt) {
-        alert("이미지를 업로드하거나 이미지 생성 프롬프트를 입력해주세요.");
+
+      if (!hasImageUpload) {
+        toast({
+          title: "입력 필요",
+          description: "이미지를 업로드해주세요.",
+          variant: "destructive",
+          duration: 3000,
+        });
         return;
       }
     }
-    
+
     setIsLoading(true)
 
     try {
       // 사용자 인증 확인
       if (!user || !user.teams || user.teams.length === 0) {
-        alert("❌ 인플루언서 생성 권한이 없습니다.\n\n팀에 소속되어야 인플루언서를 생성할 수 있습니다.")
+        toast({
+          title: "권한 없음",
+          description: "팀에 소속되어야 인플루언서를 생성할 수 있습니다.",
+          variant: "destructive",
+          duration: 3000,
+        })
         setIsLoading(false)
         return
       }
@@ -275,8 +359,10 @@ export default function CreateModelPage() {
           createInfluencerData.style_preset_id = formData.selectedPresetId;
           createInfluencerData.personality = selectedPreset.influencer_personality;
           createInfluencerData.tone = selectedPreset.influencer_speech;
+          createInfluencerData.system_prompt = formData.systemPrompt || selectedPreset.system_prompt; // 프리셋의 시스템 프롬프트 추가
           createInfluencerData.model_type = selectedPreset.influencer_type === 1 ? "character" : selectedPreset.influencer_type === 2 ? "human" : "objects";
           createInfluencerData.mbti = selectedPreset.mbti_name;
+          createInfluencerData.mbti_id = selectedPreset.mbti_id;
           createInfluencerData.gender = selectedPreset.influencer_gender === 0 ? "male" : selectedPreset.influencer_gender === 1 ? "female" : "other";
           createInfluencerData.age = selectedPreset.influencer_age_group ? String(selectedPreset.influencer_age_group * 10) : undefined;
           createInfluencerData.hair_style = selectedPreset.influencer_hairstyle;
@@ -286,25 +372,52 @@ export default function CreateModelPage() {
         // 직접 입력 모드: style_preset_id는 undefined로 보내고, 사용자가 입력한 데이터 사용
         createInfluencerData.style_preset_id = undefined; // 백엔드에서 자동 생성 로직을 타도록 undefined로 보냄
         createInfluencerData.personality = formData.personality;
-        createInfluencerData.tone = formData.tone || formData.customTones[0] || "";
+        
+        // 탭에 따라 데이터 전송 방식 변경
+        if (toneTab === "custom" && formData.customTones.length >= 7) {
+          // 대사 입력 탭: tone_data로 전송
+          createInfluencerData.tone_type = "dialogue";
+          createInfluencerData.tone_data = formData.customTones.join("\n");
+          createInfluencerData.tone = ""; // tone은 빈 값으로
+        } else {
+          // 추천 말투 탭: 기존 방식대로 tone 필드 사용
+          createInfluencerData.tone = formData.tone || "";
+        }
+        
         createInfluencerData.system_prompt = formData.systemPrompt; // Use the stored systemPrompt
         createInfluencerData.model_type = formData.modelType;
-        createInfluencerData.mbti = formData.mbti !== "none" ? formData.mbti : undefined;
-        createInfluencerData.gender = formData.gender !== "none" ? formData.gender : undefined;
-        createInfluencerData.age = formData.age;
-        
-        // 이미지 생성 방법에 따른 데이터 추가
-        if (formData.imageMethod === "prompt") {
-          createInfluencerData.hair_style = formData.hairStyle;
-          createInfluencerData.mood = formData.mood;
+        // mbti_id를 MBTI 타입 문자열로 변환
+        if (formData.mbti !== "none" && formData.mbti) {
+          const selectedMbti = mbtiList.find(m => String(m.mbti_id) === formData.mbti);
+          createInfluencerData.mbti = selectedMbti?.mbti_name;
+          createInfluencerData.mbti_id = parseInt(formData.mbti);
         }
+        createInfluencerData.gender = formData.gender !== "none" ? (formData.gender === "0" ? "male" : formData.gender === "1" ? "female" : formData.gender === "2" ? "other" : formData.gender) : undefined;
+        createInfluencerData.age = formData.age;
+
+        // 이미지 생성 관련 코드 제거
       }
-      // 실제 인플루언서 생성 API 호출
-      const response = await ModelService.createInfluencer(createInfluencerData)
-      
+
+      // 이미지가 있는 경우 FormData로 전송
+      if (files.imageSamples && files.imageSamples.length > 0) {
+        const formData = new FormData();
+        
+        // 인플루언서 데이터를 JSON 문자열로 변환하여 추가
+        formData.append('influencer_data', JSON.stringify(createInfluencerData));
+        
+        // 첫 번째 이미지 파일 추가
+        formData.append('image', files.imageSamples[0]);
+        
+        // ModelService의 createInfluencerWithImage 메서드 사용
+        await ModelService.createInfluencerWithImage(formData);
+      } else {
+        // 이미지가 없는 경우 기존 방식으로 전송
+        await ModelService.createInfluencer(createInfluencerData);
+      }
+
       // 성공 알림 표시
       let successMessage = `🎉 AI 인플루언서 "${formData.name}"가 생성되었습니다!\n\n`
-      
+
       if (formData.selectedPresetId !== "manual") {
         const selectedPreset = stylePresets.find(p => p.style_preset_id === formData.selectedPresetId)
         successMessage += `• 프리셋 기반으로 생성: ${selectedPreset?.style_preset_name}\n`
@@ -315,67 +428,92 @@ export default function CreateModelPage() {
         successMessage += `• 성격: ${formData.personality}\n`
         successMessage += `• 말투: ${formData.tone || formData.customTones[0] || "사용자 정의"}\n`
         successMessage += `• 모델 유형: ${formData.modelType === "character" ? "캐릭터형" : formData.modelType === "human" ? "사람형" : "사물형"}\n`
-        
-        if (formData.imageMethod === "prompt") {
-          successMessage += `• 이미지: 프롬프트 생성 (${formData.hairStyle}, ${formData.mood})\n`
-        } else {
-          successMessage += `• 이미지: 파일 업로드\n`
-        }
+
+        successMessage += `• 이미지: 파일 업로드\n`
       }
-      
-      successMessage += `\n다음 작업이 백그라운드에서 자동으로 진행됩니다:\n• 2,000개 QA 쌍 생성\n• S3에 데이터 업로드\n• QLoRA 4비트 양자화 파인튜닝\n• Hugging Face에 모델 업로드\n\n완료 시 이메일과 웹 알림을 받으실 수 있습니다.`
-      
-      alert(successMessage)
-      
+
+      successMessage += `\n인플루언서 생성 완료 시 이메일과 웹 알림을 받으실 수 있습니다.`
+
+      toast({
+        title: "생성 성공",
+        description: successMessage,
+        duration: 3000,
+      })
+
       setIsLoading(false)
       router.push("/dashboard")
-      
+
     } catch (error) {
-      console.error('인플루언서 생성 실패:', error)
+      // console.error('인플루언서 생성 실패:', error)
       setIsLoading(false)
-      
+
       // 에러 알림 표시
-      alert(`❌ 인플루언서 생성에 실패했습니다.\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}\n\n다시 시도해주세요.`) 
+      toast({
+        title: "생성 실패",
+        description: `오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}. 다시 시도해주세요.`,
+        variant: "destructive",
+        duration: 3000,
+      })
     }
   }
 
   // API를 통한 말투 생성
   const generateConversationExamples = async (personality: string, isRegeneration: boolean = false) => {
     if (!personality.trim()) {
-      alert('성격을 먼저 입력해주세요.')
+      toast({
+        title: "입력 필요",
+        description: '성격을 먼저 입력해주세요.',
+        variant: "destructive",
+        duration: 3000,
+      })
       return
     }
     if (!user || !user.user_id) {
-      alert('사용자 정보가 없어 말투를 생성할 수 없습니다. 로그인 후 다시 시도해주세요.');
+      toast({
+        title: "인증 필요",
+        description: '사용자 정보가 없어 말투를 생성할 수 없습니다. 로그인 후 다시 시도해주세요.',
+        variant: "destructive",
+        duration: 3000,
+      });
       return;
     }
     if (!user.teams || user.teams.length === 0) {
-      alert('팀 정보가 없어 말투를 생성할 수 없습니다. 팀에 소속된 후 다시 시도해주세요.');
+      toast({
+        title: "팀 정보 필요",
+        description: '팀 정보가 없어 말투를 생성할 수 없습니다. 팀에 소속된 후 다시 시도해주세요.',
+        variant: "destructive",
+        duration: 3000,
+      });
       return;
     }
 
     setGeneratingTones(true)
-    
+
     try {
       const request: ToneGenerationRequest = {
         personality: personality,
         name: formData.name || undefined,
         description: formData.description || undefined,
-        mbti: formData.mbti !== "none" ? formData.mbti : undefined,
-        gender: formData.gender !== "none" ? formData.gender : undefined,
+        mbti: formData.mbti !== "none" ? mbtiList.find(m => String(m.mbti_id) === formData.mbti)?.mbti_name : undefined,
+        gender: formData.gender !== "none" ? (formData.gender === "0" ? "male" : formData.gender === "1" ? "female" : formData.gender === "2" ? "other" : formData.gender) : undefined,
         age: formData.age || undefined
       }
 
-      const response = isRegeneration 
+      const response = isRegeneration
         ? await ModelService.regenerateTones(request)
         : await ModelService.generateTones(request)
-      
+
       setGeneratedTones(response.conversation_examples)
       setShowToneExamples(true)
-      
+
     } catch (error) {
-      console.error('말투 생성 실패:', error)
-      alert('말투 생성에 실패했습니다. 다시 시도해주세요.')
+      // console.error('말투 생성 실패:', error)
+      toast({
+        title: "생성 실패",
+        description: '말투 생성에 실패했습니다. 다시 시도해주세요.',
+        variant: "destructive",
+        duration: 3000,
+      })
     } finally {
       setGeneratingTones(false)
     }
@@ -387,7 +525,7 @@ export default function CreateModelPage() {
     const personalityLower = (personality || '').toLowerCase()
 
     // 성격 키워드에 따른 대화 예시
-    const conversationMap: Record<string, Array<{title: string, example: string, tone: string, hashtags?: string, system_prompt?: string}>> = {
+    const conversationMap: Record<string, Array<{ title: string, example: string, tone: string, hashtags?: string, system_prompt?: string }>> = {
       친근: [
         {
           title: "친근하고 다정한",
@@ -506,7 +644,7 @@ export default function CreateModelPage() {
     }
 
     // 성격에서 키워드 찾기
-    const matchedConversations: Array<{title: string, example: string, tone: string, hashtags?: string, system_prompt?: string}> = []
+    const matchedConversations: Array<{ title: string, example: string, tone: string, hashtags?: string, system_prompt?: string }> = []
     Object.keys(conversationMap).forEach((key) => {
       if (personalityLower.includes(key)) {
         matchedConversations.push(...conversationMap[key])
@@ -541,7 +679,7 @@ export default function CreateModelPage() {
     }
 
     // 중복 제거하고 최대 3개까지
-    const uniqueConversations = matchedConversations.filter((item, index, self) => 
+    const uniqueConversations = matchedConversations.filter((item, index, self) =>
       index === self.findIndex(t => t.title === item.title)
     )
     return uniqueConversations.slice(0, 3)
@@ -549,26 +687,24 @@ export default function CreateModelPage() {
 
   const conversationExamples = generatedTones.length > 0 ? generatedTones : generateStaticConversationExamples(formData.personality)
 
-  // 프리셋 기반 동적 옵션 추출
-  // Note: influencer_type, influencer_gender, influencer_age_group은 StylePreset 모델에 정의된 필드입니다.
-  // ModelService.getStylePresets()에서 이 필드들을 포함하여 반환해야 합니다.
-  const uniqueModelTypes = Array.from(new Set(stylePresets.map(p => p.influencer_type))).filter(Boolean);
-  const uniqueModelTypeOptions = uniqueModelTypes.map(type => ({
-    value: String(type),
-    label: type === 1 ? "캐릭터" : type === 2 ? "사람" : type === 3 ? "사물" : `기타(${type})`
-  }));
-  const uniqueGenders = Array.from(new Set(stylePresets.map(p => p.influencer_gender))).filter(Boolean);
-  const uniqueGenderOptions = uniqueGenders.map(gender => ({
-    value: String(gender),
-    label: gender === 0 ? "남성" : gender === 1 ? "여성" : gender === 2 ? "기타" : `기타(${gender})`
-  }));
-  const uniqueAges = Array.from(new Set(stylePresets.map(p => p.influencer_age_group))).filter(Boolean);
-  const uniqueAgeOptions = uniqueAges.map(age => ({
-    value: String(age),
-    label: age === 1 ? "10대" : age === 2 ? "20대" : age === 3 ? "30대" : age === 4 ? "40대" : age === 5 ? "50대 이상" : `기타(${age})`
-  }));
-  const uniquePersonalities = Array.from(new Set(stylePresets.map(p => p.influencer_personality).filter(Boolean)));
-  const uniqueTones = Array.from(new Set(stylePresets.map(p => p.influencer_speech).filter(Boolean)));
+  // 프리셋 기반 동적 옵션 추출은 현재 사용되지 않음 (주석 처리)
+  // const uniqueModelTypes = Array.from(new Set(stylePresets.map(p => p.influencer_type))).filter(Boolean);
+  // const uniqueModelTypeOptions = uniqueModelTypes.map(type => ({
+  //   value: String(type),
+  //   label: type === 1 ? "캐릭터" : type === 2 ? "사람" : type === 3 ? "사물" : `기타(${type})`
+  // }));
+  // const uniqueGenders = Array.from(new Set(stylePresets.map(p => p.influencer_gender))).filter(Boolean);
+  // const uniqueGenderOptions = uniqueGenders.map(gender => ({
+  //   value: String(gender),
+  //   label: gender === 0 ? "남성" : gender === 1 ? "여성" : gender === 2 ? "기타" : `기타(${gender})`
+  // }));
+  // const uniqueAges = Array.from(new Set(stylePresets.map(p => p.influencer_age_group))).filter(Boolean);
+  // const uniqueAgeOptions = uniqueAges.map(age => ({
+  //   value: String(age),
+  //   label: age === 1 ? "10대" : age === 2 ? "20대" : age === 3 ? "30대" : age === 4 ? "40대" : age === 5 ? "50대 이상" : `기타(${age})`
+  // }));
+  // const uniquePersonalities = Array.from(new Set(stylePresets.map(p => p.influencer_personality).filter(Boolean)));
+  // const uniqueTones = Array.from(new Set(stylePresets.map(p => p.influencer_speech).filter(Boolean)));
 
   // 말투 추가 함수
   const handleAddCustomTone = () => {
@@ -589,6 +725,13 @@ export default function CreateModelPage() {
     }));
   };
 
+  // 이미지 미리보기 URL 정리
+  useEffect(() => {
+    return () => {
+      imagePreviewUrls.forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [imagePreviewUrls])
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -608,12 +751,12 @@ export default function CreateModelPage() {
           <Card>
             <CardHeader>
               <CardTitle>기본 정보</CardTitle>
-              <CardDescription>AI 인플루언서의 이름, 설명, 특성을 입력하세요</CardDescription>
+              <CardDescription>AI 인플루언서의 이름, 설명 등 정보를 입력하세요</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* 이름/설명 입력 */}
               <div>
-                <Label htmlFor="name">AI 인플루언서 이름</Label>
+                <Label htmlFor="name">AI 인플루언서 이름*</Label>
                 <Input
                   id="name"
                   placeholder="예: 패션 인플루언서 AI"
@@ -623,7 +766,7 @@ export default function CreateModelPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="description">설명</Label>
+                <Label htmlFor="description">설명*</Label>
                 <Textarea
                   id="description"
                   placeholder="AI 인플루언서에 대한 상세한 설명을 입력하세요"
@@ -643,8 +786,8 @@ export default function CreateModelPage() {
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder={
-                      loadingPresets 
-                        ? "프리셋 로딩 중..." 
+                      loadingPresets
+                        ? "프리셋 로딩 중..."
                         : "프리셋을 선택하면 아래 입력란이 자동으로 채워집니다"
                     } />
                   </SelectTrigger>
@@ -667,40 +810,31 @@ export default function CreateModelPage() {
                   <Label htmlFor="mbti">MBTI (선택사항)</Label>
                   <Select value={formData.mbti} onValueChange={(value) => handleInputChange("mbti", value)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="MBTI 선택 (선택사항)" />
+                      <SelectValue placeholder={loadingMbti ? "MBTI 로딩 중..." : "MBTI 선택 (선택사항)"} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">선택 안함</SelectItem>
-                      <SelectItem value="ENFP">ENFP - 재기발랄한 활동가</SelectItem>
-                      <SelectItem value="ENFJ">ENFJ - 정의로운 사회운동가</SelectItem>
-                      <SelectItem value="ENTP">ENTP - 뜨거운 논쟁을 즐기는 변론가</SelectItem>
-                      <SelectItem value="ENTJ">ENTJ - 대담한 통솔자</SelectItem>
-                      <SelectItem value="ESFP">ESFP - 자유로운 영혼의 연예인</SelectItem>
-                      <SelectItem value="ESFJ">ESFJ - 사교적인 외교관</SelectItem>
-                      <SelectItem value="ESTP">ESTP - 모험을 즐기는 사업가</SelectItem>
-                      <SelectItem value="ESTJ">ESTJ - 엄격한 관리자</SelectItem>
-                      <SelectItem value="INFP">INFP - 열정적인 중재자</SelectItem>
-                      <SelectItem value="INFJ">INFJ - 선의의 옹호자</SelectItem>
-                      <SelectItem value="INTP">INTP - 논리적인 사색가</SelectItem>
-                      <SelectItem value="INTJ">INTJ - 용의주도한 전략가</SelectItem>
-                      <SelectItem value="ISFP">ISFP - 호기심 많은 예술가</SelectItem>
-                      <SelectItem value="ISFJ">ISFJ - 용감한 수호자</SelectItem>
-                      <SelectItem value="ISTP">ISTP - 만능 재주꾼</SelectItem>
-                      <SelectItem value="ISTJ">ISTJ - 현실주의자</SelectItem>
+                      {mbtiList.map((mbti) => (
+                        <SelectItem key={mbti.mbti_id} value={String(mbti.mbti_id)}>
+                          {mbti.mbti_name} - {mbti.mbti_traits}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                  {loadingMbti && (
+                    <p className="text-xs text-gray-500 mt-1">MBTI 목록을 불러오는 중...</p>
+                  )}
                 </div>
                 <div>
-                  <Label htmlFor="gender">성별 (선택사항)</Label>
+                  <Label htmlFor="gender">성별*</Label>
                   <Select value={formData.gender} onValueChange={(value) => handleInputChange("gender", value)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="성별 선택 (선택사항)" />
+                      <SelectValue placeholder="성별을 선택하세요" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">선택 안함</SelectItem>
-                      <SelectItem value="male">남성</SelectItem>
-                      <SelectItem value="female">여성</SelectItem>
-                      <SelectItem value="other">기타</SelectItem>
+                      <SelectItem value="0">남성</SelectItem>
+                      <SelectItem value="1">여성</SelectItem>
+                      <SelectItem value="2">기타</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -713,19 +847,17 @@ export default function CreateModelPage() {
                     value={formData.age}
                     onChange={(e) => handleInputChange("age", e.target.value)}
                     min="20"
-                    required
                   />
                 </div>
               </div>
               {/* 허깅페이스 토큰 선택 */}
               <div>
-                <Label htmlFor="huggingFaceToken">허깅페이스 토큰 선택 (선택사항)</Label>
+                <Label htmlFor="huggingFaceToken">허깅페이스 토큰 선택*</Label>
                 <Select value={formData.huggingFaceToken} onValueChange={(value) => handleInputChange("huggingFaceToken", value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="허깅페이스 토큰을 선택하세요" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">선택 안함</SelectItem>
                     {huggingFaceTokens.map(token => (
                       <SelectItem key={token.hf_manage_id} value={token.hf_manage_id}>
                         {token.hf_token_nickname}
@@ -751,7 +883,7 @@ export default function CreateModelPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <Label htmlFor="personality">성격</Label>
+                <Label htmlFor="personality">성격*</Label>
                 <Input
                   id="personality"
                   placeholder="예: 친근하고 트렌디한, 전문적이고 신뢰할 수 있는, 활발하고 에너지 넘치는"
@@ -763,12 +895,12 @@ export default function CreateModelPage() {
               </div>
 
               <div>
-                <Label className="text-base font-medium">말투 선택</Label>
+                <Label className="text-base font-medium">말투 선택*</Label>
                 <p className="text-sm text-gray-600 mb-4">성격에 맞는 말투를 선택하거나 직접 입력하세요</p>
                 <Tabs value={toneTab} onValueChange={setToneTab} className="w-full mb-4">
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="recommend">추천 말투 선택</TabsTrigger>
-                    <TabsTrigger value="custom">직접 입력</TabsTrigger>
+                    <TabsTrigger value="custom">캐릭터 대사 입력 (7개 이상)</TabsTrigger>
                   </TabsList>
                   <TabsContent value="recommend">
                     <div className="flex gap-2 mb-4">
@@ -779,7 +911,7 @@ export default function CreateModelPage() {
                       >
                         {generatingTones ? '생성 중...' : '말투 생성'}
                       </Button>
-                      
+
                       {showToneExamples && (
                         <Button
                           variant="outline"
@@ -844,15 +976,25 @@ export default function CreateModelPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <Lightbulb className="h-4 w-4 text-yellow-600" />
                         <span className="text-sm text-yellow-800">
-                          예시 말투가 많을수록 인플루언서가 학습을 잘합니다.
+                          캐릭터의 실제 대사를 7개 이상 입력해주세요. ({formData.customTones.length}/7개)
                         </span>
                       </div>
+                      {formData.customTones.length < 7 && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-2">
+                          <p className="text-sm text-blue-700">
+                            💡 캐릭터가 실제로 할 법한 대사를 입력하세요. 예:
+                            <br />• "안녕! 오늘도 좋은 하루 보내고 있어?"
+                            <br />• "우와, 이거 정말 대박이다!"
+                            <br />• "음... 그건 좀 어려운 문제네요."
+                          </p>
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <Input
                           value={customToneInput}
                           onChange={e => setCustomToneInput(e.target.value)}
-                          placeholder="말투 예시를 입력하세요"
-                          onKeyDown={e => { if (e.key === 'Enter') handleAddCustomTone(); }}
+                          placeholder="캐릭터의 대사를 입력하세요"
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustomTone(); } }}
                         />
                         <Button type="button" onClick={handleAddCustomTone} disabled={!customToneInput.trim()}>
                           추가
@@ -863,9 +1005,9 @@ export default function CreateModelPage() {
                           generatedTones.map((tone, idx) => (
                             <li key={idx} className="flex items-center gap-2 bg-gray-50 rounded px-3 py-2">
                               <span className="flex-1 text-sm">{tone.title} - {tone.tone}</span>
-                              <Button 
-                                type="button" 
-                                size="sm" 
+                              <Button
+                                type="button"
+                                size="sm"
                                 variant="outline"
                                 onClick={() => {
                                   setFormData(prev => ({
@@ -897,105 +1039,179 @@ export default function CreateModelPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* 이미지 업로드/생성 카드 */}
           <Card>
             <CardHeader>
               <CardTitle>이미지 설정</CardTitle>
               <CardDescription>
-                AI 인플루언서의 이미지를 설정하세요.<br/>
-                설정하지 않으면 기본 이미지가 자동으로 생성됩니다.
-                </CardDescription>
+                AI 인플루언서의 이미지를 업로드하세요.<br />
+                이미지 업로드는 필수입니다.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* 이미지 생성 방법 탭 */}
+              {/* 이미지 업로드 섹션 */}
               <div>
-                <Label className="text-base font-medium mb-3 block">이미지 생성 방법</Label>
-                <Tabs value={formData.imageMethod} onValueChange={(value) => handleInputChange("imageMethod", value)} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="upload">이미지 업로드</TabsTrigger>
-                    <TabsTrigger value="prompt">이미지 생성</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="upload" className="mt-4">
                     <div>
                       <Label className="text-base font-medium mb-3 block">이미지 파일 업로드</Label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                        <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600 mb-2">이미지 파일을 드래그하거나 클릭하여 업로드</p>
-                        <input
-                          type="file"
-                          multiple
-                          accept=".jpg,.jpeg,.png,.webp"
-                          onChange={(e) => handleFileUpload("imageSamples", e.target.files)}
-                          className="hidden"
-                          id="image-upload"
-                        />
-                        <Label htmlFor="image-upload" className="cursor-pointer">
-                          <Button type="button" variant="outline" size="sm">
-                            파일 선택
-                          </Button>
-                        </Label>
-                        {files.imageSamples && (
-                          <p className="text-xs text-green-600 mt-2">{files.imageSamples.length}개 파일 선택됨</p>
-                        )}
-                      </div>
-                    </div>
-                  </TabsContent>
+                      
+                      {imagePreviewUrls.length === 0 ? (
+                        // 이미지가 없을 때: 업로드 영역 표시
+                        <div className="relative group transition-all duration-300 hover:scale-[1.02]">
+                          <div className="relative overflow-hidden rounded-xl border-2 border-dashed transition-all duration-300 border-gray-300 bg-gradient-to-br from-gray-50 to-white hover:border-blue-400 hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50">
+                            {/* 배경 패턴 */}
+                            <div className="absolute inset-0 opacity-5">
+                              <div className="absolute top-4 left-4 w-8 h-8 border-2 border-gray-400 rounded-lg"></div>
+                              <div className="absolute top-12 right-8 w-6 h-6 border-2 border-gray-400 rounded-full"></div>
+                              <div className="absolute bottom-8 left-12 w-4 h-4 border-2 border-gray-400 rotate-45"></div>
+                              <div className="absolute bottom-16 right-4 w-10 h-10 border-2 border-gray-400 rounded-lg"></div>
+                            </div>
 
-                  <TabsContent value="prompt" className="mt-4">
-                    <div className="space-y-4">
-                      <Label className="text-base font-medium block">이미지 생성 프롬프트</Label>
-                      <div>
-                        <Label htmlFor="modelType">AI 인플루언서 유형</Label>
-                        <Select value={formData.modelType} onValueChange={(value) => handleInputChange("modelType", value)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="AI 인플루언서 유형을 선택하세요" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="character">캐릭터형 (애니메이션, 만화 스타일)</SelectItem>
-                            <SelectItem value="human">사람형 (실제 사람과 유사한 형태)</SelectItem>
-                            <SelectItem value="objects">사물형 (사물과 유사한 형태)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="hairStyle">헤어스타일</Label>
-                        <Input
-                          id="hairStyle"
-                          placeholder="예: 긴 생머리, 숏컷, 웨이브 머리, 포니테일"
-                          value={formData.hairStyle}
-                          onChange={(e) => handleInputChange("hairStyle", e.target.value)}
-                        />
-                        <p className="text-xs text-gray-500 mt-1">💡 원하는 헤어스타일을 자세히 설명해주세요</p>
-                      </div>
-                      <div>
-                        <Label htmlFor="mood">분위기/스타일</Label>
-                        <Input
-                          id="mood"
-                          placeholder="예: 밝고 친근한, 세련되고 우아한, 캐주얼하고 편안한"
-                          value={formData.mood}
-                          onChange={(e) => handleInputChange("mood", e.target.value)}
-                        />
-                        <p className="text-xs text-gray-500 mt-1">💡 원하는 분위기나 스타일을 설명해주세요</p>
-                      </div>
+                            <div className="relative p-12 text-center">
+                              {/* 아이콘 영역 */}
+                              <div className="relative mx-auto mb-6 w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 bg-gray-100 group-hover:bg-blue-100 group-hover:shadow-lg group-hover:shadow-blue-200">
+                                <Upload className="h-8 w-8 transition-all duration-300 text-gray-500 group-hover:text-blue-600 group-hover:scale-110" />
+                              </div>
+
+                              {/* 텍스트 영역 */}
+                              <div className="space-y-3">
+                                <h3 className="text-xl font-semibold transition-colors duration-300 text-gray-800 group-hover:text-blue-700">
+                                  이미지 업로드
+                                </h3>
+                                <p className="text-sm transition-colors duration-300 max-w-md mx-auto text-gray-600 group-hover:text-blue-600">
+                                  AI 인플루언서 학습용 이미지들을 드래그하여 놓거나 클릭하여 선택하세요
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  지원 형식: JPG, PNG, WebP (여러 파일 선택 가능)
+                                </p>
+                              </div>
+
+                              {/* 파일 선택 버튼 */}
+                              <div className="mt-6">
+                                <input
+                                  type="file"
+                                  multiple
+                                  accept=".jpg,.jpeg,.png,.webp"
+                                  onChange={(e) => handleFileUpload("imageSamples", e.target.files)}
+                                  className="hidden"
+                                  id="image-upload"
+                                />
+                                <label htmlFor="image-upload">
+                                  <Button
+                                    className="transition-all duration-300 cursor-pointer bg-white hover:bg-blue-50 text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-700 shadow-sm hover:shadow-md"
+                                    asChild
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <Upload className="h-4 w-4" />
+                                      파일 선택
+                                    </span>
+                                  </Button>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        // 이미지가 있을 때: 미리보기와 추가 업로드 버튼
+                        <div className="space-y-6">
+                          {/* 업로드된 이미지 미리보기 */}
+                          <div>
+                            <div className="flex items-center justify-between mb-4">
+                              <Label className="text-base font-medium">프로필 이미지</Label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="file"
+                                  multiple
+                                  accept=".jpg,.jpeg,.png,.webp"
+                                  onChange={(e) => handleFileUpload("imageSamples", e.target.files)}
+                                  className="hidden"
+                                  id="image-upload-additional"
+                                />
+                                <label htmlFor="image-upload-additional">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="cursor-pointer"
+                                    asChild
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <Upload className="h-4 w-4" />
+                                      이미지 변경
+                                    </span>
+                                  </Button>
+                                </label>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                              {imagePreviewUrls.map((url, index) => (
+                                <div key={index} className="relative group">
+                                  <div className="aspect-square rounded-lg overflow-hidden border-2 border-gray-200 hover:border-blue-400 transition-colors">
+                                    <img
+                                      src={url}
+                                      alt={`미리보기 ${index + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="destructive"
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    // 해당 이미지 제거
+                                    const newFiles = files.imageSamples?.filter((_, i) => i !== index) || []
+                                    const newUrls = imagePreviewUrls.filter((_, i) => i !== index)
+                                    setFiles(prev => ({ ...prev, imageSamples: newFiles.length > 0 ? newFiles : null }))
+                                    setImagePreviewUrls(newUrls)
+                                    // 기존 URL 해제
+                                    URL.revokeObjectURL(url)
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                                  </div>
+                                  <p className="text-xs text-gray-500 mt-1 text-center truncate">
+                                    {files.imageSamples?.[index]?.name || `이미지 ${index + 1}`}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </TabsContent>
-                </Tabs>
               </div>
             </CardContent>
           </Card>
 
           <div className="flex justify-end gap-4">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => router.push("/dashboard")}
               disabled={isLoading}
             >
               취소
             </Button>
-            <Button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button 
+              type="submit" 
+              disabled={
+                isLoading || 
+                !formData.name.trim() || // 이름*
+                !formData.description.trim() || // 설명*
+                formData.gender === "none" || !formData.gender || // 성별*
+                formData.huggingFaceToken === "none" || !formData.huggingFaceToken || // 허깅페이스 토큰*
+                !formData.personality.trim() || // 성격*
+                // 말투 검증: 추천 말투 탭에서는 tone 필수, 대사 입력 탭에서는 7개 이상 필수
+                (toneTab === "recommend" ? !formData.tone.trim() : formData.customTones.length < 7) ||
+                // 이미지 업로드 필수
+                (!files.imageSamples || files.imageSamples.length === 0)
+              } 
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
               {isLoading ? '생성 중...' : '생성하기'}
             </Button>
           </div>

@@ -8,11 +8,12 @@ import aiohttp
 import json
 from typing import List, Dict, Any
 import os
-
+from app.core.config import settings
+from app.utils.korean_romanizer import korean_name_to_roman
 logger = logging.getLogger(__name__)
 
-VLLM_SERVER_URL = os.getenv("VLLM_SERVER_URL", "http://localhost:8001")
 
+VLLM_SERVER_URL = settings.VLLM_BASE_URL
 async def create_system_message(influencer_name: str, personality: str, style_info: str = "") -> str:
     """vLLM 서버에 시스템 메시지 생성 요청"""
     try:
@@ -41,35 +42,42 @@ async def create_system_message(influencer_name: str, personality: str, style_in
         logger.error(f"❌ vLLM 서버 연결 실패: {e}")
         raise Exception(f"vLLM 서버를 사용할 수 없습니다: {e}")
 
-async def convert_qa_data_for_finetuning(qa_data: List[Dict], influencer_name: str, 
-                                     personality: str, style_info: str = "") -> List[Dict]:
-    """vLLM 서버에 QA 데이터 변환 요청"""
+def convert_qa_data_for_finetuning(qa_data: List[Dict], influencer_name: str, 
+                                   personality: str, style_info: str = "") -> List[Dict]:
+    """QA 데이터를 파인튜닝용 형식으로 변환 (RunPod 워커가 원하는 형식)"""
     try:
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "qa_data": qa_data,
-                "influencer_name": influencer_name,
-                "personality": personality,
-                "style_info": style_info
+        logger.info(f"🔄 QA 데이터 변환 시작: {len(qa_data)}개")
+        
+        # RunPod 워커는 원본 QA 형식을 그대로 원함
+        # 시스템 메시지는 별도로 전달되므로 여기서는 QA만 정리
+        validated_qa_data = []
+        
+        for qa in qa_data:
+            if not isinstance(qa, dict):
+                logger.warning(f"잘못된 QA 형식 (dict가 아님): {type(qa)}")
+                continue
+                
+            question = qa.get("question", qa.get("q", ""))
+            answer = qa.get("answer", qa.get("a", ""))
+            
+            if not question or not answer:
+                logger.warning(f"빈 질문 또는 답변 건너뛰기: Q={question}, A={answer}")
+                continue
+            
+            # RunPod 워커가 원하는 형식
+            validated_qa = {
+                "question": question,
+                "answer": answer
             }
             
-            async with session.post(
-                f"{VLLM_SERVER_URL}/api/v1/convert-qa-data",
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=60)
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logger.info(f"✅ vLLM 서버에서 QA 데이터 변환 성공: {len(result.get('finetuning_data', []))}개")
-                    return result.get("finetuning_data", [])
-                else:
-                    error_msg = f"vLLM 서버 QA 데이터 변환 실패: {response.status}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
-                    
+            validated_qa_data.append(validated_qa)
+        
+        logger.info(f"✅ QA 데이터 변환 완료: {len(validated_qa_data)}개")
+        return validated_qa_data
+        
     except Exception as e:
-        logger.error(f"❌ vLLM 서버 연결 실패: {e}")
-        raise Exception(f"vLLM 서버를 사용할 수 없습니다: {e}")
+        logger.error(f"❌ QA 데이터 변환 실패: {e}")
+        raise Exception(f"QA 데이터 변환 실패: {e}")
 
 
 async def validate_qa_data(qa_data: List[Dict]) -> bool:
@@ -114,7 +122,7 @@ def format_model_name_for_korean(korean_name: str) -> str:
     """
     한글 이름을 모델명에 적합한 영문으로 변환 (로컬 처리)
     """
-    # 간단한 한글 단어 매핑
+    # 간단한 한글 단어 매핑 (특수 케이스)
     name_mapping = {
         '루시우': 'lucio',
         '아나': 'ana', 
@@ -139,20 +147,27 @@ def format_model_name_for_korean(korean_name: str) -> str:
     if korean_name in name_mapping:
         return name_mapping[korean_name]
     
-    # 간단한 변환: 영문자와 숫자만 남기고 나머지는 제거
-    result = ""
-    for char in korean_name:
-        if char.isalnum():
-            if 'a' <= char <= 'z' or 'A' <= char <= 'Z' or '0' <= char <= '9':
-                result += char.lower()
-            else:
-                # 한글인 경우 간단히 처리
-                result += 'ko'
-        elif char in ['-', '_']:
-            result += char
+    # 한글 로마자 변환기 사용
+    result = korean_name_to_roman(korean_name)
+    
+    # 영문자, 숫자, 하이픈, 언더스코어만 남기고 소문자로 변환
+    cleaned_result = ""
+    for char in result:
+        if char.isalnum() or char in ['-', '_', ' ']:
+            cleaned_result += char.lower()
+    
+    # 공백을 하이픈으로 변환
+    cleaned_result = cleaned_result.replace(' ', '-')
+    
+    # 연속된 하이픈 제거
+    while '--' in cleaned_result:
+        cleaned_result = cleaned_result.replace('--', '-')
+    
+    # 앞뒤 하이픈 제거
+    cleaned_result = cleaned_result.strip('-')
     
     # 결과가 비어있거나 너무 짧으면 기본값 사용
-    if not result or len(result) < 2:
-        result = f"influencer_{hash(korean_name) % 10000}"
+    if not cleaned_result or len(cleaned_result) < 2:
+        cleaned_result = f"influencer_{hash(korean_name) % 10000}"
     
-    return result
+    return cleaned_result

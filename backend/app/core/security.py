@@ -7,6 +7,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
 from typing import Dict
 from app.core.config import settings
+from app.models.influencer import InfluencerAPI, AIInfluencer
+from sqlalchemy.orm import Session
+from app.database import get_db
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -43,6 +46,22 @@ class SecurityLogger:
         )
 
 
+def mask_token_for_logging(token: str) -> str:
+    """
+    로그용 JWT 토큰 마스킹 - 보안 강화
+    
+    Args:
+        token: JWT 토큰 문자열
+        
+    Returns:
+        str: 마스킹된 토큰 (앞 20자 + "...")
+    """
+    if not token or len(token) <= 20:
+        return "[TOKEN_MASKED]"
+    
+    return f"{token[:20]}..."
+
+
 # 비밀번호 해싱 함수
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """비밀번호 검증"""
@@ -67,6 +86,10 @@ def create_access_token(
         "exp": expire,
         "iat": datetime.utcnow()
     })
+    
+    # 디버그: SECRET_KEY 확인
+    logger.info(f"🔑 Creating token with SECRET_KEY: {settings.SECRET_KEY[:20]}... (algorithm: {settings.ALGORITHM})")
+    
     encoded_jwt = jwt.encode(
         to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )
@@ -76,16 +99,90 @@ def create_access_token(
 def verify_token(token: str) -> Optional[dict]:
     """토큰 검증"""
     try:
+        # 토큰 기본 검증
+        if not token:
+            logger.error(f"❌ JWT verification failed: 토큰이 비어있음")
+            return None
+        
+        if not isinstance(token, str):
+            logger.error(f"❌ JWT verification failed: 토큰이 문자열이 아님 (type: {type(token)})")
+            return None
+        
+        # 토큰 구조 확인 (JWT는 3개 부분으로 구성)
+        token_parts = token.split('.')
+        if len(token_parts) != 3:
+            logger.error(f"❌ JWT verification failed: 토큰 구조가 잘못됨 (parts: {len(token_parts)})")
+            return None
+        
+        # 디버그: SECRET_KEY 확인
+        logger.info(f"🔐 JWT 토큰 검증 시작:")
+        logger.info(f"🔐 - SECRET_KEY: {settings.SECRET_KEY[:20]}... (length: {len(settings.SECRET_KEY)})")
+        logger.info(f"🔐 - Algorithm: {settings.ALGORITHM}")
+        logger.info(f"🔐 - Token length: {len(token)}")
+        logger.info(f"🔐 - Token parts: {len(token_parts)} (header.payload.signature)")
+        
+        # 서명 없이 페이로드 먼저 확인
+        try:
+            unverified = jwt.decode(token, key=settings.SECRET_KEY, options={"verify_signature": False})
+            logger.info(f"🔐 토큰 페이로드 (서명 미검증): {unverified}")
+            
+            # 만료 시간 확인
+            exp = unverified.get('exp')
+            iat = unverified.get('iat')
+            current_time = datetime.utcnow().timestamp()
+            
+            if exp:
+                exp_datetime = datetime.fromtimestamp(exp)
+                logger.info(f"🔐 토큰 만료 시간: {exp_datetime} (현재: {datetime.fromtimestamp(current_time)})")
+                if exp < current_time:
+                    logger.error(f"❌ JWT verification failed: 토큰이 만료됨 (exp: {exp_datetime})")
+                    return None
+            
+            if iat:
+                iat_datetime = datetime.fromtimestamp(iat)
+                logger.info(f"🔐 토큰 발행 시간: {iat_datetime}")
+                
+        except Exception as decode_error:
+            logger.error(f"❌ 토큰 페이로드 디코딩 실패: {decode_error}")
+            return None
+        
+        # 실제 서명 검증
+        logger.info(f"🔐 서명 검증 시작...")
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        logger.info(f"Token verification successful for user: {payload.get('sub', 'unknown')}")
+        
+        logger.info(f"✅ JWT 토큰 검증 성공!")
+        logger.info(f"✅ 사용자 ID: {payload.get('sub')}")
+        logger.info(f"✅ 이메일: {payload.get('email')}")
+        logger.info(f"✅ 그룹: {payload.get('groups', [])}")
+        
         return payload
+        
     except JWTError as e:
-        logger.error(f"JWT verification failed: {str(e)}")
-        logger.error(f"Token prefix: {token[:20]}..." if len(token) > 20 else f"Token: {token}")
-        logger.error(f"SECRET_KEY configured: {'Yes' if settings.SECRET_KEY else 'No'}")
-        logger.error(f"Algorithm: {settings.ALGORITHM}")
+        logger.error(f"❌ JWT verification failed: {type(e).__name__}: {str(e)}")
+        logger.error(f"❌ 토큰 정보:")
+        logger.error(f"   - Token prefix: {token[:20]}..." if len(token) > 20 else f"   - Token: {token}")
+        logger.error(f"   - SECRET_KEY configured: {'Yes' if settings.SECRET_KEY else 'No'}")
+        logger.error(f"   - SECRET_KEY prefix: {settings.SECRET_KEY[:20]}..." if settings.SECRET_KEY else "None")
+        logger.error(f"   - Algorithm: {settings.ALGORITHM}")
+        
+        # 구체적인 오류 타입별 메시지
+        if "ExpiredSignatureError" in str(type(e)):
+            logger.error(f"❌ 토큰 만료 오류")
+        elif "InvalidSignatureError" in str(type(e)):
+            logger.error(f"❌ 서명 불일치 오류 - SECRET_KEY 확인 필요")
+        elif "DecodeError" in str(type(e)):
+            logger.error(f"❌ 토큰 디코딩 오류 - 토큰 형식 문제")
+        elif "InvalidTokenError" in str(type(e)):
+            logger.error(f"❌ 유효하지 않은 토큰")
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ JWT verification 예상치 못한 오류: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"❌ 스택 트레이스: {traceback.format_exc()}")
         return None
 
 
@@ -95,14 +192,28 @@ async def get_current_user(
 ) -> Dict:
     """현재 인증된 사용자 정보 반환 (전체 JWT 페이로드 포함)"""
     token = credentials.credentials
+    
+    # 보안 로깅: 토큰 마스킹 처리 (DEBUG 로그 제거 - 너무 빈번함)
+    masked_token = mask_token_for_logging(token)
+    # logger.debug(f"🔐 인증 토큰 검증 시작: {masked_token}")
+    
     payload = verify_token(token)
-
+    
     if payload is None:
+        logger.warning(f"❌ JWT 토큰 검증 실패: {masked_token}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # 페이로드에서 민감하지 않은 정보만 로깅
+    user_info = {
+        "user_id": payload.get("sub", "unknown"),
+        "provider": payload.get("provider", "unknown"),
+        "groups": payload.get("groups", [])
+    }
+    # logger.debug(f"✅ JWT 토큰 검증 성공: {user_info}")  # DEBUG 로그 제거 - 너무 빈번함
 
     return payload
 
@@ -235,7 +346,7 @@ def generate_jwt_payload(user_info: Dict, provider: str) -> Dict:
         "permissions": [
             "post:read", "post:write", "model:read", "model:write", 
             "insights:read", "business:manage"
-        ] if is_business else ["post:read", "model:read"],
+        ],
     }
     
     if provider == "instagram":
@@ -251,3 +362,100 @@ def generate_jwt_payload(user_info: Dict, provider: str) -> Dict:
 
 # 전역 보안 모니터 인스턴스
 security_monitor = SecurityMonitor()
+
+# API 키 인증을 위한 커스텀 의존성
+class APIKeyAuth:
+    def __init__(self):
+        self.scheme = HTTPBearer(auto_error=False)
+    
+    async def __call__(self, request: Request, db: Session = Depends(get_db)) -> AIInfluencer:
+        # Authorization 헤더에서 Bearer 토큰 추출
+        authorization = request.headers.get("Authorization")
+        if not authorization:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header missing",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Bearer 토큰 형식 확인
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authorization header format",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # API 키 추출 (Bearer 제거)
+        api_key = authorization[7:]  # "Bearer " 이후의 문자열
+        
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API key missing",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        try:
+            # API 키로 인플루언서 조회
+            influencer_api = (
+                db.query(InfluencerAPI)
+                .filter(InfluencerAPI.api_value == api_key)
+                .first()
+            )
+            
+            if not influencer_api:
+                logger.warning(f"❌ 잘못된 API 키 시도: {api_key[:10]}...")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid API key",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # 인플루언서 정보 조회
+            influencer = (
+                db.query(AIInfluencer)
+                .filter(AIInfluencer.influencer_id == influencer_api.influencer_id)
+                .first()
+            )
+            
+            if not influencer:
+                logger.error(f"❌ API 키는 유효하지만 인플루언서를 찾을 수 없음: {influencer_api.influencer_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Influencer not found",
+                )
+            
+            # 인플루언서 정보 로그
+            logger.info(f"🔍 조회된 인플루언서: id={influencer.influencer_id}, name={influencer.influencer_name}, model_repo={influencer.influencer_model_repo}")
+            
+            # 챗봇 옵션이 활성화된 인플루언서만 접근 가능
+            if influencer.chatbot_option is not True:
+                logger.warning(f"⚠️ 챗봇이 비활성화된 인플루언서 접근 시도: {influencer.influencer_name}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Chatbot is not enabled for this influencer",
+                )
+            
+            # 학습 상태 확인 (사용 가능한 상태여야 함)
+            if influencer.learning_status != 1:
+                logger.warning(f"⚠️ 학습이 완료되지 않은 인플루언서 접근 시도: {influencer.influencer_name} (status: {influencer.learning_status})")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Influencer is not ready for chat",
+                )
+            
+            logger.info(f"✅ API 키 인증 성공: {influencer.influencer_name}")
+            return influencer
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ API 키 인증 중 오류: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
+
+# API 키 인증 의존성 인스턴스
+get_current_user_by_api_key = APIKeyAuth()

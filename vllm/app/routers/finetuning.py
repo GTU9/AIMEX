@@ -22,6 +22,7 @@ async def start_finetuning_endpoint(request: FineTuningRequest):
             "task_id": task_id,
             "influencer_id": request.influencer_id,
             "influencer_name": request.influencer_name,
+            "system_prompt": request.system_prompt,
             "personality": request.personality,
             "qa_data": request.qa_data,
             "hf_repo_id": request.hf_repo_id,
@@ -90,25 +91,52 @@ async def list_finetuning_tasks():
 async def get_gpu_status():
     """GPU 상태 조회"""
     try:
-        from pipeline.gpu_utils import get_gpu_info, log_gpu_status
+        # GPU manager 제거 - device_map='auto' 사용으로 간소화
+        import torch
         
-        # GPU 상태 로깅
-        log_gpu_status()
+        # PyTorch로 기본 GPU 정보 조회
+        gpu_available = torch.cuda.is_available()
+        gpu_count = torch.cuda.device_count() if gpu_available else 0
         
-        # GPU 정보 가져오기
-        gpu_info = get_gpu_info()
+        basic_gpu_info = {
+            "available": gpu_available,
+            "count": gpu_count,
+            "current_device": torch.cuda.current_device() if gpu_available else None
+        }
         
-        # 현재 진행 중인 파인튜닝 작업 수
-        active_tasks = sum(1 for task in core.finetuning_tasks.values() 
-                          if task["status"] in ["training", "preparing_data", "uploading"])
+        detailed_gpu_info = {}
+        if gpu_available:
+            for i in range(gpu_count):
+                props = torch.cuda.get_device_properties(i)
+                detailed_gpu_info[i] = {
+                    "name": props.name,
+                    "total": props.total_memory // (1024 * 1024),  # MB
+                    "available": True
+                }
+        
+        # 현재 진행 중인 파인튜닝 작업 정보
+        active_tasks = []
+        for task_id, task in core.finetuning_tasks.items():
+            if task["status"] in ["training", "preparing_data", "uploading"]:
+                active_tasks.append({
+                    "task_id": task_id,
+                    "status": task["status"],
+                    "selected_gpu": task.get("selected_gpu", "N/A"),
+                    "gpu_info_at_start": task.get("gpu_info_at_start", {})
+                })
         
         # 대기 중인 작업 수
         pending_tasks = sum(1 for task in core.finetuning_tasks.values() 
                            if task["status"] == "pending")
         
         return {
-            "gpu_info": gpu_info,
-            "active_finetuning_tasks": active_tasks,
+            "basic_gpu_info": basic_gpu_info,
+            "detailed_gpu_info": detailed_gpu_info,
+            "device_map": "auto",  # device_map='auto' 사용 중
+            "active_finetuning_tasks": {
+                "count": len(active_tasks),
+                "tasks": active_tasks
+            },
             "pending_finetuning_tasks": pending_tasks,
             "queue_size": core.finetuning_queue.qsize() if core.finetuning_queue else 0
         }

@@ -3,9 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -16,16 +14,6 @@ export function Navigation() {
   const pathname = usePathname()
   const { user, logout, isAuthenticated } = useAuth()
   const { hasPermission, isAdmin, hasGroup } = usePermission()
-  const [emailModalOpen, setEmailModalOpen] = useState(false)
-  const [email, setEmail] = useState(user?.email || "")
-  const [emailSaved, setEmailSaved] = useState(false)
-
-  const handleEmailSave = (e: React.FormEvent) => {
-    e.preventDefault()
-    setEmailModalOpen(false)
-    setEmailSaved(true)
-    // TODO: API 연동 (PATCH /api/profile 등)
-  }
 
   if (pathname === "/login" || !isAuthenticated) {
     return null
@@ -37,7 +25,7 @@ export function Navigation() {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link href="/dashboard" className="flex items-center space-x-2">
-              <Bot className="h-8 w-8 text-blue-600" />
+              <img src="/favicon.ico" alt="AIMEX" className="h-8 w-8" />
               <span className="text-xl font-bold text-gray-900">AIMEX</span>
             </Link>
           </div>
@@ -114,18 +102,15 @@ export function Navigation() {
                   <p className="text-xs text-gray-500">{user?.company}</p>
                   {user?.teams && user.teams.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {user.teams.map((team, idx) => (
-                        <span key={team.group_id} className="text-xs text-gray-500">
+                      {user.teams.map((team, index) => (
+                        <span key={team.group_id || `team-${index}`} className="text-xs text-gray-500">
                           {team.group_name || `그룹${team.group_id}`}
                         </span>
                       ))}
                     </div>
                   )}
                 </div>
-                <DropdownMenuItem onClick={() => setEmailModalOpen(true)}>
-                  <User className="mr-2 h-4 w-4" />
-                  <span>이메일 변경</span>
-                </DropdownMenuItem>
+
                 {user?.teams?.some(team => team.group_id === 1) && (
                   <Link href="/administrator">
                     <DropdownMenuItem>
@@ -143,30 +128,6 @@ export function Navigation() {
           </div>
         </div>
       </div>
-      <Dialog open={emailModalOpen} onOpenChange={setEmailModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>이메일 변경</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleEmailSave} className="space-y-4">
-            <div className="text-sm text-gray-500 mb-2">현재 이메일: {user?.email}</div>
-            <div>
-              <Label htmlFor="email">새 이메일</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit">저장</Button>
-              <Button type="button" variant="outline" onClick={() => setEmailModalOpen(false)}>취소</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </nav>
   )
 }
