@@ -1,4 +1,3 @@
-[readme.md](https://github.com/user-attachments/files/23841490/readme.md)
 # AIMEX - AI Marketing Expert
 
 ![AIMEX Logo](etc/aimex.png)  
