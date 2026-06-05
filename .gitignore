@@ -102,8 +102,10 @@ logs/
 *.tmp
 *.temp
 
-# Claude MCP
-.claude
+# Claude Code
+.claude/
+.omc/
+docs/
 
 # Documentation and manuals
 **/API_DESIGN.md
