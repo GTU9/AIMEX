@@ -53,6 +53,48 @@ export default function LoginPage() {
     }
   }
 
+  // 개발용 테스트 로그인 (OAuth 키 없이 가짜 user_info로 로그인)
+  const handleTestLogin = async () => {
+    if (isLoading !== null || isRedirecting) {
+      return
+    }
+
+    setIsLoading("test")
+
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+      const res = await fetch(`${backendUrl}/api/v1/auth/social-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "google",
+          user_info: {
+            id: "devtest-001",
+            email: "devtest@example.com",
+            name: "개발 테스트 사용자",
+          },
+        }),
+      })
+
+      if (!res.ok) {
+        throw new Error(`서버 응답 오류 (${res.status})`)
+      }
+
+      const data = await res.json()
+      await login(data.access_token)
+      router.push("/dashboard")
+    } catch (error) {
+      console.error("테스트 로그인 실패:", error)
+      toast({
+        title: "테스트 로그인 실패",
+        description: "백엔드(localhost:8000)가 실행 중인지 확인해주세요.",
+        variant: "destructive",
+        duration: 3000,
+      })
+      setIsLoading(null)
+    }
+  }
+
   // 인증 로딩 중이거나 이미 로그인된 상태라면 로딩 표시
   if (authLoading || isAuthenticated) {
     return (
@@ -115,6 +157,26 @@ export default function LoginPage() {
               </>
             )}
           </Button>
+
+          {/* 개발용 테스트 로그인 버튼 */}
+          <div className="pt-2">
+            <div className="flex items-center my-2">
+              <div className="flex-grow border-t border-gray-200"></div>
+              <span className="px-2 text-xs text-gray-400">개발용</span>
+              <div className="flex-grow border-t border-gray-200"></div>
+            </div>
+            <Button
+              onClick={handleTestLogin}
+              disabled={isLoading !== null || isRedirecting}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center space-x-2 py-3"
+            >
+              {isLoading === "test" ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              ) : (
+                <span className="font-medium">🧪 테스트 로그인 (OAuth 우회)</span>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

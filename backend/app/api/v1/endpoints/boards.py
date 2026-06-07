@@ -40,8 +40,6 @@ from app.services.content_generation_service import (
 from app.services.scheduler_service import scheduler_service
 from app.models.influencer import AIInfluencer
 from app.services.instagram_posting_service import InstagramPostingService
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
 import re
 from pydantic import BaseModel
 from app.utils.timezone_utils import get_current_kst, convert_to_kst
