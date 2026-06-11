@@ -5,6 +5,11 @@
 .env.test.local
 .env.production.local
 
+# NAS 배포 비밀 파일 (템플릿 *.example 만 커밋)
+deploy/nas/.env
+deploy/nas/backend.env
+deploy/nas/frontend.env
+
 # Frontend (Next.js/Node.js)
 frontend/node_modules
 frontend/.next

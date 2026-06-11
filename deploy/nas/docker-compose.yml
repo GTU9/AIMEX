@@ -1,0 +1,107 @@
+# AIMEX NAS 하이브리드 배포 (앱=NAS 상시 / GPU=RunPod 온디맨드)
+# ---------------------------------------------------------------------------
+# 사전 준비:
+#   1) cp .env.example .env                  # compose 변수(DB/MinIO/CF 토큰)
+#   2) cp backend.env.example backend.env    # 백엔드 런타임 env (실제 값 기입)
+#   3) cp frontend.env.example frontend.env  # 프론트 런타임 env (NextAuth 등)
+#   4) docker compose up -d --build
+# 비밀 파일(.env / backend.env / frontend.env)은 리포지토리에 커밋하지 말 것.
+# ---------------------------------------------------------------------------
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PW}
+      MARIADB_DATABASE: AIMEX_MAIN
+      MARIADB_CHARACTER_SET_SERVER: utf8mb4
+      MARIADB_COLLATE_SERVER: utf8mb4_unicode_ci
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PW}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9001:9001"      # 콘솔 (내부망에서만 접근 권장)
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend.env
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    # 빈 DB 대비: 마이그레이션 선행 후 기동.
+    # alembic upgrade head 실패 시(체인 손상 이력) README 의 우회 절차 참조.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* 는 빌드타임에 번들에 박힘 → 여기서 주입
+        NEXT_PUBLIC_BACKEND_URL: ${PUBLIC_API_URL}
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_URL}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_GOOGLE_REDIRECT_URI: ${NEXT_PUBLIC_GOOGLE_REDIRECT_URI:-}
+        NEXT_PUBLIC_NAVER_CLIENT_ID: ${NEXT_PUBLIC_NAVER_CLIENT_ID:-}
+        NEXT_PUBLIC_NAVER_REDIRECT_URI: ${NEXT_PUBLIC_NAVER_REDIRECT_URI:-}
+        NEXT_PUBLIC_INSTAGRAM_APP_ID: ${NEXT_PUBLIC_INSTAGRAM_APP_ID:-}
+        NEXT_PUBLIC_INSTAGRAM_REDIRECT_URI: ${NEXT_PUBLIC_INSTAGRAM_REDIRECT_URI:-}
+    env_file:
+      - ./frontend.env
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # --- 선택: RAG 벡터DB. 필요해지면 주석 해제 (RAM 6GB+ 권장) ---
+  # milvus:
+  #   image: milvusdb/milvus:v2.4.0
+  #   command: ["milvus", "run", "standalone"]
+  #   environment:
+  #     ETCD_USE_EMBED: "true"
+  #     COMMON_STORAGETYPE: "local"
+  #   volumes:
+  #     - milvus_data:/var/lib/milvus
+  #   restart: unless-stopped
+
+volumes:
+  db_data:
+  minio_data:
+  # milvus_data:

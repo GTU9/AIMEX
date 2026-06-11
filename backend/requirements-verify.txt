@@ -1,0 +1,35 @@
+# --- 그룹 A/B 검증용 슬림 의존성 (GPU/LLM 스택 제외) ---
+fastapi==0.104.1
+uvicorn==0.32.0
+starlette==0.27.0
+python-multipart==0.0.6
+websockets==14.1
+SQLAlchemy==2.0.23
+alembic==1.13.0
+PyMySQL==1.1.0
+aiomysql==0.2.0
+greenlet==3.2.3
+python-jose==3.3.0
+passlib==1.7.4
+bcrypt==4.3.0
+cryptography==45.0.4
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+httpx==0.27.2
+requests==2.32.4
+aiohttp==3.12.13
+aiofiles==23.2.0
+openai==1.86.0
+boto3==1.39.1
+APScheduler==3.10.4
+PyYAML==6.0.2
+Jinja2==3.1.6
+pillow==10.4.0
+PyPDF2==3.0.1
+# --- 테스트 도구 ---
+pytest==8.3.4
+pytest-asyncio==0.24.0
+faker==33.1.0
+respx==0.21.1

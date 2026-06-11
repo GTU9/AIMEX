@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+build/
+.git/
+.gitignore
+npm-debug.log*
+.env
+.env.*
+!.env.example
+certificates/
+README.md
+personal.md
