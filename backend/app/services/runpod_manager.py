@@ -1245,8 +1245,17 @@ _finetuning_manager = None
 _runpod_manager = None  # 기존 호환성
 
 
+def _use_modal() -> bool:
+    """GPU_PROVIDER 설정이 modal 인지 확인 (지연 import로 순환 import 회피)"""
+    from app.core.config import settings
+    return (settings.GPU_PROVIDER or "runpod").lower() == "modal"
+
+
 def get_tts_manager() -> TTSRunPodManager:
-    """TTS RunPod 매니저 싱글톤 인스턴스 반환"""
+    """TTS 매니저 싱글톤 인스턴스 반환 (GPU_PROVIDER 분기)"""
+    if _use_modal():
+        from app.services.modal_manager import get_modal_tts_manager
+        return get_modal_tts_manager()
     global _tts_manager
     if _tts_manager is None:
         _tts_manager = TTSRunPodManager()
@@ -1254,7 +1263,10 @@ def get_tts_manager() -> TTSRunPodManager:
 
 
 def get_vllm_manager() -> VLLMRunPodManager:
-    """vLLM RunPod 매니저 싱글톤 인스턴스 반환"""
+    """vLLM 매니저 싱글톤 인스턴스 반환 (GPU_PROVIDER 분기)"""
+    if _use_modal():
+        from app.services.modal_manager import get_modal_vllm_manager
+        return get_modal_vllm_manager()
     global _vllm_manager
     if _vllm_manager is None:
         _vllm_manager = VLLMRunPodManager()
@@ -1262,7 +1274,10 @@ def get_vllm_manager() -> VLLMRunPodManager:
 
 
 def get_finetuning_manager() -> FinetuningRunPodManager:
-    """Fine-tuning RunPod 매니저 싱글톤 인스턴스 반환"""
+    """Fine-tuning 매니저 싱글톤 인스턴스 반환 (GPU_PROVIDER 분기)"""
+    if _use_modal():
+        from app.services.modal_manager import get_modal_finetuning_manager
+        return get_modal_finetuning_manager()
     global _finetuning_manager
     if _finetuning_manager is None:
         _finetuning_manager = FinetuningRunPodManager()
