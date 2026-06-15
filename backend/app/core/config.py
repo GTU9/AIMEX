@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     DEBUG: bool = False
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+    # 외부에서 공개 접근 가능한 백엔드 베이스 URL.
+    # IMAGE_STORAGE_TYPE=local 사용 시 Instagram 등 외부 API가 이미지에 접근하려면
+    # 상대경로(/api/v1/images/...)를 절대 공개 URL로 만들 접두어가 필요하다.
+    # 미설정 시 BACKEND_URL 로 폴백한다. (예: https://your-domain.com)
+    PUBLIC_BASE_URL: Optional[str] = os.getenv("PUBLIC_BASE_URL")
 
     # 데이터베이스 설정
     DATABASE_URL: str

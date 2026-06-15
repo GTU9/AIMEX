@@ -20,6 +20,17 @@ class InstagramPostingService:
 
         self.backend_url = settings.BACKEND_URL
 
+    @staticmethod
+    def is_token_expired(token_expires_at) -> bool:
+        """Instagram 액세스 토큰 만료 여부 확인.
+
+        token_expires_at 이 None 이면(만료 시각 미저장) 만료로 단정하지 않고 False 반환.
+        Instagram 장기 토큰은 약 60일 유효하며, 만료 시 재연동이 필요하다.
+        """
+        if not token_expires_at:
+            return False
+        return datetime.utcnow() > token_expires_at
+
     def _validate_image_url(self, image_url: str) -> bool:
         """이미지 URL 기본 검증"""
         try:
@@ -37,19 +48,38 @@ class InstagramPostingService:
             return False
 
     def _convert_to_public_url(self, image_url: str) -> Optional[str]:
-        """이미지 URL을 공개 URL로 변환"""
+        """이미지 URL을 공개 URL로 변환
+
+        Instagram /media 엔드포인트는 외부에서 공개 접근 가능한 image_url 을 요구한다.
+        - http(s) 절대 URL: 그대로 사용 (단, localhost 류는 호출자가 차단)
+        - 로컬 볼륨 저장(IMAGE_STORAGE_TYPE=local) 시의 상대경로(/api/v1/images/... 등):
+          PUBLIC_BASE_URL(미설정 시 BACKEND_URL) 접두어를 붙여 절대 공개 URL로 변환.
+          이때 베이스가 localhost 면 Instagram 이 접근할 수 없으므로 호출자에서 차단된다.
+        - 그 외(접두어 없는 키): S3 키로 간주하여 Presigned URL 생성.
+        """
+        from app.core.config import settings
+
         logger.info(f"이미지 URL 변환 시작: {image_url}")
 
-        if image_url.startswith("/uploads/"):
-            # 로컬 uploads 경로는 더 이상 사용하지 않음
-            logger.warning(
-                f"로컬 uploads 경로는 더 이상 지원되지 않습니다: {image_url}"
-            )
-            return None
-        elif image_url.startswith("http"):
+        if image_url.startswith("http"):
             # 이미 공개 URL인 경우 그대로 반환
             logger.info(f"이미 공개 URL입니다: {image_url}")
             return image_url
+        elif image_url.startswith("/"):
+            # 로컬 볼륨 저장 모드의 상대경로 (예: /api/v1/images/<uuid>.png, /uploads/...)
+            # PUBLIC_BASE_URL(미설정 시 BACKEND_URL)을 접두어로 붙여 공개 URL 구성
+            base_url = (settings.PUBLIC_BASE_URL or settings.BACKEND_URL or "").rstrip(
+                "/"
+            )
+            if not base_url:
+                logger.error(
+                    "로컬 이미지 경로를 공개 URL로 변환할 수 없습니다: "
+                    "PUBLIC_BASE_URL/BACKEND_URL 미설정"
+                )
+                return None
+            public_url = f"{base_url}{image_url}"
+            logger.info(f"로컬 경로를 공개 URL로 변환: {image_url} -> {public_url}")
+            return public_url
         else:
             # S3 키인 경우 Presigned URL 생성
             try:
@@ -108,12 +138,19 @@ class InstagramPostingService:
                     )
 
                 # 로컬 URL인 경우 인스타그램 업로드 불가능
-                if public_image_url.startswith(
-                    "https://localhost"
-                ) or public_image_url.startswith("http://localhost"):
+                if (
+                    public_image_url.startswith("https://localhost")
+                    or public_image_url.startswith("http://localhost")
+                    or public_image_url.startswith("https://127.0.0.1")
+                    or public_image_url.startswith("http://127.0.0.1")
+                ):
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="로컬 이미지 URL은 인스타그램 API에서 접근할 수 없습니다. 공개 URL을 사용하거나 S3 등의 클라우드 스토리지를 사용하세요.",
+                        detail=(
+                            "이미지 URL이 localhost/내부 주소라 인스타그램 API가 접근할 수 없습니다. "
+                            "PUBLIC_BASE_URL 환경변수를 외부 공개 도메인으로 설정하거나 "
+                            "S3 등 공개 스토리지를 사용하세요."
+                        ),
                     )
 
                 async with httpx.AsyncClient() as client:
@@ -271,12 +308,19 @@ class InstagramPostingService:
                     )
 
                 # 로컬 URL인 경우 인스타그램 업로드 불가능
-                if public_image_url.startswith(
-                    "https://localhost"
-                ) or public_image_url.startswith("http://localhost"):
+                if (
+                    public_image_url.startswith("https://localhost")
+                    or public_image_url.startswith("http://localhost")
+                    or public_image_url.startswith("https://127.0.0.1")
+                    or public_image_url.startswith("http://127.0.0.1")
+                ):
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="로컬 이미지 URL은 인스타그램 API에서 접근할 수 없습니다. 공개 URL을 사용하거나 S3 등의 클라우드 스토리지를 사용하세요.",
+                        detail=(
+                            "이미지 URL이 localhost/내부 주소라 인스타그램 API가 접근할 수 없습니다. "
+                            "PUBLIC_BASE_URL 환경변수를 외부 공개 도메인으로 설정하거나 "
+                            "S3 등 공개 스토리지를 사용하세요."
+                        ),
                     )
 
                 async with httpx.AsyncClient() as client:

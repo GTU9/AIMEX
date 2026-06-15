@@ -147,6 +147,15 @@ async def post_to_instagram(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="인스타그램 계정이 연동되지 않았습니다. 먼저 인스타그램 계정을 연동해주세요.",
             )
+
+        # 토큰 만료 확인 (만료 시각이 저장된 경우)
+        if instagram_posting_service.is_token_expired(
+            influencer.instagram_token_expires_at
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="인스타그램 액세스 토큰이 만료되었습니다. 인스타그램 계정을 다시 연동해주세요.",
+            )
         print("찾기 완료")
         logger.info(
             f"Instagram connection check: is_active={instagram_is_active}, has_token={bool(instagram_access_token)}"

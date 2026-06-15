@@ -841,6 +841,9 @@ async def create_board_with_image(
                     and influencer.instagram_is_active
                     and influencer.instagram_access_token
                     and influencer.instagram_id
+                    and not InstagramPostingService.is_token_expired(
+                        influencer.instagram_token_expires_at
+                    )
                 ):
                     logger.info(
                         f"Attempting Instagram auto-upload for board: {board.board_id}"

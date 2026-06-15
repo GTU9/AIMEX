@@ -51,14 +51,17 @@ class InstagramService:
             token_json = token_response.json()
             access_token = token_json.get("access_token")
             user_id = token_json.get("user_id")
-            
+            # 단기 토큰 응답에는 보통 expires_in 이 없음(없으면 None)
+            expires_in = token_json.get("expires_in")
+
             logger.info(f"✅ Instagram 토큰 교환 성공:")
             logger.info(f"   - user_id: {user_id}")
             logger.info(f"   - access_token 존재: {bool(access_token)}")
-            
+
             return {
                 "access_token": access_token,
-                "user_id": user_id
+                "user_id": user_id,
+                "expires_in": expires_in
             }
     
     async def get_instagram_account_info(self, access_token: str, user_id: str) -> Dict:
@@ -160,10 +163,12 @@ class InstagramService:
         
         # 2. 계정 정보 조회
         account_info = await self.get_instagram_account_info(
-            token_data["access_token"], 
+            token_data["access_token"],
             token_data["user_id"]
         )
-        
+        # 토큰 만료 정보 전달 (만료 저장에 사용)
+        account_info["expires_in"] = token_data.get("expires_in")
+
         logger.info(f"📋 최종 연동 정보:")
         logger.info(f"   - instagram_id: {account_info.get('instagram_id')}")
         logger.info(f"   - username: {account_info.get('username')}")

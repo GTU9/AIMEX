@@ -123,6 +123,15 @@ async def connect_instagram_account(
         influencer.instagram_account_type = instagram_account_type
         influencer.instagram_connected_at = datetime.utcnow()
         influencer.instagram_is_active = True
+
+        # 토큰 만료 시각 저장 (expires_in 초 단위, 없으면 미설정)
+        expires_in_seconds = account_info.get("expires_in")
+        if expires_in_seconds:
+            from datetime import timedelta
+
+            influencer.instagram_token_expires_at = datetime.utcnow() + timedelta(
+                seconds=int(expires_in_seconds)
+            )
         
         logger.info(f"   - 저장할 instagram_id: {influencer.instagram_id}")
         logger.info(f"   - 저장할 instagram_page_id: {influencer.instagram_page_id}")
