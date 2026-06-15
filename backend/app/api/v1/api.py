@@ -28,6 +28,7 @@ from app.api.v1.endpoints import (
     gallery,  # 갤러리 API
     image_modification,  # 이미지 수정 API
     runpod,  # RunPod 비용 조회 API
+    notifications,  # 알림 API
 )
 
 # 기존 복잡한 API들 임시 비활성화 (새로운 간소화된 API 사용)
@@ -70,6 +71,9 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytic
 
 # 시스템 관리 API
 api_router.include_router(system.router, prefix="/system", tags=["System"])
+
+# 알림 API
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 
 # 인스타그램 연동 API
 api_router.include_router(instagram.router, prefix="/instagram", tags=["Instagram"])

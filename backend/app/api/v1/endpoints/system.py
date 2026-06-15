@@ -24,7 +24,7 @@ async def get_system_logs(
     current_user: User = Depends(get_current_user),
 ):
     """시스템 로그 조회"""
-    query = db.query(SystemLog).filter(SystemLog.user_id == current_user.user_id)
+    query = db.query(SystemLog).filter(SystemLog.user_id == current_user.get("sub"))
 
     if log_type is not None:
         query = query.filter(SystemLog.log_type == log_type)
@@ -42,7 +42,7 @@ async def create_system_log(
     """시스템 로그 생성"""
     log = SystemLog(
         log_id=str(uuid.uuid4()),
-        user_id=current_user.user_id,
+        user_id=current_user.get("sub"),
         log_type=log_data.log_type,
         log_content=log_data.log_content,
         created_at=get_current_kst().isoformat(),
@@ -64,7 +64,7 @@ async def get_system_log(
     """특정 시스템 로그 조회"""
     log = (
         db.query(SystemLog)
-        .filter(SystemLog.log_id == log_id, SystemLog.user_id == current_user.user_id)
+        .filter(SystemLog.log_id == log_id, SystemLog.user_id == current_user.get("sub"))
         .first()
     )
 
