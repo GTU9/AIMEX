@@ -4,13 +4,15 @@ QA 생성 서비스
 """
 
 import os
+import re
+import time
 import json
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import tempfile
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 
 from app.schemas.qa_generation import CharacterProfile, Gender
 from app.core.encryption import decrypt_sensitive_data
@@ -51,8 +53,10 @@ class QAGenerationService:
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             self.openai_client = OpenAI(api_key=api_key)
+            self.async_openai_client = AsyncOpenAI(api_key=api_key)
             logger.info("✅ OpenAI 클라이언트 초기화 완료")
         else:
+            self.async_openai_client = None
             logger.warning("⚠️ OPENAI_API_KEY가 설정되지 않았습니다")
     
     async def generate_qa_for_influencer(

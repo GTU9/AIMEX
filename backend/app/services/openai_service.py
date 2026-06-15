@@ -73,9 +73,10 @@ class OpenAIService(AIContentGeneratorInterface):
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY", "")
         self.use_mock = not self.api_key or self.api_key == ""
+        self._client = None
 
-        if not self.use_mock:
-            openai.api_key = self.api_key
+        if not self.use_mock and OPENAI_AVAILABLE:
+            self._client = openai.AsyncOpenAI(api_key=self.api_key)
 
         logger.info(f"OpenAI Service initialized (Mock mode: {self.use_mock})")
 
@@ -133,7 +134,7 @@ class OpenAIService(AIContentGeneratorInterface):
 
         try:
             # OpenAI API 호출
-            response = await openai.ChatCompletion.acreate(
+            response = await self._client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {
@@ -366,7 +367,7 @@ class OpenAIService(AIContentGeneratorInterface):
 """
 
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = await self._client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {

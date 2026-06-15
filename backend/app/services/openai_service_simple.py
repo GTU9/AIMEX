@@ -42,6 +42,7 @@ class ContentGenerationResponse(BaseModel):
     """콘텐츠 생성 응답 모델"""
 
     social_media_content: str
+    english_prompt_for_comfyui: str = ""
     hashtags: List[str]
     metadata: Dict[str, Any]
 
@@ -98,13 +99,13 @@ class OpenAIService:
 
 응답은 반드시 아래 JSON 형식 그대로 반환하세요:
 
-{
+{{
   "content_guideline": "{request.platform} 플랫폼에서 최적의 콘텐츠를 제작하기 위한 지침",
   "output_format": "{request.platform} 플랫폼에 맞는 최종 출력 포맷(JSON 구조로 예시 제공)",
   "example_response": "{request.platform} 플랫폼에서 생성될 실제 예시 콘텐츠",
   "hashtags_generation_rule": "{request.platform} 플랫폼에 맞는 해시태그 생성 방식 설명",
   "hashtags": ["#예시해시태그1", "#예시해시태그2", "#예시해시태그3"]
-}
+}}
 
 주의: 해시태그는 반드시 #으로 시작해야 하며, ##는 사용하지 마세요.
 """
@@ -131,9 +132,21 @@ class OpenAIService:
 
             content = response.choices[0].message.content or ""
 
-            # JSON 파싱 시도
+            # 마크다운 코드 블록 제거 후 JSON 파싱 시도
+            import re as _re
+            json_text = content.strip()
+            # ```json ... ``` 또는 ``` ... ``` 펜스 제거
+            fence_match = _re.search(r"```(?:json)?\s*([\s\S]*?)```", json_text)
+            if fence_match:
+                json_text = fence_match.group(1).strip()
+            else:
+                # 중괄호로 시작하는 JSON 블록 추출 시도
+                brace_match = _re.search(r"\{[\s\S]*\}", json_text)
+                if brace_match:
+                    json_text = brace_match.group(0)
+
             try:
-                parsed_content = json.loads(content)
+                parsed_content = json.loads(json_text)
 
                 # 해시태그 후처리: ##을 #으로 수정
                 raw_hashtags = parsed_content.get("hashtags", [])
@@ -151,8 +164,21 @@ class OpenAIService:
                             processed_tag = tag
                         processed_hashtags.append(processed_tag)
 
+                # example_response 키를 우선 사용, 없으면 social_media_content 폴백
+                raw_social = parsed_content.get(
+                    "example_response",
+                    parsed_content.get("social_media_content", "")
+                )
+                # dict/list인 경우 JSON 문자열로 변환
+                if isinstance(raw_social, (dict, list)):
+                    social_content = json.dumps(raw_social, ensure_ascii=False)
+                else:
+                    social_content = str(raw_social) if raw_social else ""
                 return ContentGenerationResponse(
-                    social_media_content=parsed_content.get("social_media_content", ""),
+                    social_media_content=social_content,
+                    english_prompt_for_comfyui=parsed_content.get(
+                        "english_prompt_for_comfyui", ""
+                    ),
                     hashtags=processed_hashtags,
                     metadata={
                         "model": settings.OPENAI_MODEL,
@@ -167,6 +193,7 @@ class OpenAIService:
                 # JSON 파싱 실패 시 텍스트 그대로 사용
                 return ContentGenerationResponse(
                     social_media_content=content or "",
+                    english_prompt_for_comfyui="",
                     hashtags=["#AI생성", "#소셜미디어"],
                     metadata={
                         "model": settings.OPENAI_MODEL,
