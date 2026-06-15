@@ -161,7 +161,11 @@ class S3ImageService:
         user_id: Optional[str] = None,
         created_date: datetime = None,
     ) -> str:
-        """이미지를 S3에 업로드하고 URL 반환"""
+        """이미지를 S3(또는 로컬 볼륨)에 업로드하고 URL/키 반환"""
+        # 로컬 볼륨 저장소 분기
+        if self._is_local_storage():
+            return self._save_local_image(image_data, filename)
+
         if not self.is_available():
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -250,7 +254,11 @@ class S3ImageService:
         user_id: Optional[str] = None,
         created_date: datetime = None,
     ) -> str:
-        """인플루언서 이미지를 S3에 업로드하고 URL 반환"""
+        """인플루언서 이미지를 S3(또는 로컬 볼륨)에 업로드하고 URL/키 반환"""
+        # 로컬 볼륨 저장소 분기
+        if self._is_local_storage():
+            return self._save_local_image(image_data, filename)
+
         if not self.is_available():
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -295,6 +303,34 @@ class S3ImageService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"인플루언서 이미지 S3 업로드에 실패했습니다: {str(e)}",
             )
+
+    def _is_local_storage(self) -> bool:
+        """로컬 볼륨 저장소 모드 여부"""
+        return settings.IMAGE_STORAGE_TYPE == "local"
+
+    def _save_local_image(self, image_data: bytes, filename: str) -> str:
+        """이미지를 로컬 볼륨(LOCAL_STORAGE_PATH)에 저장하고 공개 URL 반환"""
+        # 파일 확장자 추출
+        file_extension = Path(filename).suffix.lower()
+        if not file_extension:
+            file_extension = ".png"  # 기본값
+
+        # 고유한 파일명 생성 (S3 키 생성 로직과 동일한 충돌 방지)
+        new_filename = f"{uuid.uuid4()}{file_extension}"
+
+        # 저장 디렉토리 보장
+        storage_dir = Path(settings.LOCAL_STORAGE_PATH)
+        storage_dir.mkdir(parents=True, exist_ok=True)
+
+        file_path = storage_dir / new_filename
+        with open(file_path, "wb") as f:
+            f.write(image_data)
+
+        # 공개 URL 생성 (LOCAL_STORAGE_BASE_URL/<filename>)
+        base_url = settings.LOCAL_STORAGE_BASE_URL.rstrip("/")
+        local_url = f"{base_url}/{new_filename}"
+        logger.info(f"이미지 로컬 저장 성공: {file_path} -> {local_url}")
+        return local_url
 
     def _get_content_type(self, file_extension: str) -> str:
         """파일 확장자에 따른 Content-Type 반환"""

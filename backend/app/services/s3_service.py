@@ -7,11 +7,42 @@ import os
 import boto3
 import json
 import logging
+from pathlib import Path
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 from botocore.exceptions import ClientError, NoCredentialsError
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
+
+
+def _is_local_storage() -> bool:
+    """로컬 볼륨 저장소 모드 여부"""
+    return settings.IMAGE_STORAGE_TYPE == "local"
+
+
+def _save_local_bytes(file_bytes: bytes, key: str) -> str:
+    """바이트 데이터를 로컬 볼륨(LOCAL_STORAGE_PATH)에 저장하고 공개 URL 반환
+
+    key의 basename을 파일명으로 사용하여 LOCAL_STORAGE_PATH 아래에 평탄하게 저장한다.
+    """
+    filename = Path(key).name
+    file_extension = Path(filename).suffix.lower()
+    if not file_extension:
+        filename = f"{filename}.png"
+
+    storage_dir = Path(settings.LOCAL_STORAGE_PATH)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = storage_dir / filename
+    with open(file_path, "wb") as f:
+        f.write(file_bytes)
+
+    base_url = settings.LOCAL_STORAGE_BASE_URL.rstrip("/")
+    local_url = f"{base_url}/{filename}"
+    logger.info(f"파일 로컬 저장 성공: {file_path} -> {local_url}")
+    return local_url
 
 
 class S3Service:
@@ -115,10 +146,18 @@ class S3Service:
         Returns:
             업로드 성공 시 S3 URL 또는 presigned URL, 실패 시 None
         """
+        # 로컬 볼륨 저장소 분기
+        if _is_local_storage():
+            try:
+                return _save_local_bytes(image_data, key)
+            except Exception as e:
+                logger.error(f"로컬 이미지 저장 실패: {e}")
+                return None
+
         if not self.is_available():
             logger.error("S3 서비스를 사용할 수 없습니다")
             return None
-            
+
         try:
             # 바이트 데이터를 직접 업로드
             self.s3_client.put_object(
@@ -300,9 +339,21 @@ class S3Service:
         Returns:
             업로드 성공 시 결과 딕셔너리, 실패 시 예외 발생
         """
+        # 로컬 볼륨 저장소 분기
+        if _is_local_storage():
+            if not content_type:
+                content_type = 'application/octet-stream'
+            local_url = _save_local_bytes(file_bytes, key)
+            return {
+                "url": local_url,
+                "key": key,
+                "size": len(file_bytes),
+                "content_type": content_type,
+            }
+
         if not self.is_available():
             raise Exception("S3 서비스를 사용할 수 없습니다")
-            
+
         try:
             # Content-Type 기본값 설정
             if not content_type:

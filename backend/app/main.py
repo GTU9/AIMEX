@@ -345,8 +345,20 @@ async def test_logs():
 
 # API 라우터 등록
 app.include_router(api_router, prefix=settings.API_V1_STR)
-# S3 전용 이미지 서빙 (로컬 uploads 디렉토리 제거)
-# app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# 이미지 저장소 분기: 로컬 볼륨 모드일 때 정적 파일 서빙 mount
+# (NAS Docker 배포 시 외부 볼륨 마운트된 로컬 파일시스템 제공)
+if settings.IMAGE_STORAGE_TYPE == "local":
+    local_storage_dir = Path(settings.LOCAL_STORAGE_PATH)
+    local_storage_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        settings.LOCAL_STORAGE_BASE_URL,
+        StaticFiles(directory=str(local_storage_dir)),
+        name="local-images",
+    )
+    logger.info(
+        f"🗂️ 로컬 이미지 저장소 서빙: {settings.LOCAL_STORAGE_BASE_URL} -> {local_storage_dir}"
+    )
 
 # 버전 없는 라우터 추가 (하위 호환성)
 from app.api.v1.endpoints.auth import router as auth_router

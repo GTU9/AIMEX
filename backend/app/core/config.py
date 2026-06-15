@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: Optional[str] = None
     S3_ENABLED: bool = True
 
+    # 이미지 저장소 설정 (s3 | local)
+    # IMAGE_STORAGE_TYPE == "local" 이면 외부 볼륨(로컬 파일시스템)에 저장
+    IMAGE_STORAGE_TYPE: str = os.getenv("IMAGE_STORAGE_TYPE", "s3")
+    LOCAL_STORAGE_PATH: str = os.getenv("LOCAL_STORAGE_PATH", "uploads/images")
+    LOCAL_STORAGE_BASE_URL: str = os.getenv("LOCAL_STORAGE_BASE_URL", "/api/v1/images")
+
     # 소셜 로그인 설정
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
