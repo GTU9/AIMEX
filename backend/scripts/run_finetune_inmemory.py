@@ -16,11 +16,13 @@ import json
 import os
 import sys
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
 BACKEND = os.path.join(REPO_ROOT, "backend")
 MODAL_DIR = os.path.join(REPO_ROOT, "vllm", "modal_workers")
 sys.path.insert(0, BACKEND)
 sys.path.insert(0, MODAL_DIR)
+sys.path.insert(0, HERE)  # gen_persona 등 동일 디렉터리 모듈
 
 JINX_SYSTEM = (
     "당신은 '징크스(Jinx)'입니다. 폭발물과 총을 사랑하는 광기 어린 말괄량이로, "
@@ -36,7 +38,15 @@ def main():
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--group", type=int, default=1)
     ap.add_argument("--system", default=JINX_SYSTEM)
+    ap.add_argument("--auto-persona", action="store_true",
+                    help="QA 대사에서 캐릭터 페르소나 system_message 자동 생성")
     args = ap.parse_args()
+
+    # 0) 자동 페르소나 (캐릭터 무관)
+    if args.auto_persona:
+        from gen_persona import build_persona
+        args.system = build_persona(args.qa)
+        print(f"🎭 자동 페르소나: {args.system}")
 
     # 1) DB 에서 HF 토큰 복호화 (메모리에만 유지)
     from app.database import SessionLocal
