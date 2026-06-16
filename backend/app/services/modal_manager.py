@@ -290,7 +290,9 @@ class ModalFinetuningManager(BaseModalManager):
         logger.info(f"⏳ Modal Finetuning runsync 요청: {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=300) as client:
+            # 파인튜닝은 장시간 작업(수십 분~). 동기 호출이므로 긴 timeout 사용.
+            # (정석은 Modal spawn + 상태 폴링이나, 현재는 백그라운드 task 내 동기 호출.)
+            async with httpx.AsyncClient(timeout=1800) as client:
                 response = await client.post(url, headers=self.headers, json=payload)
 
                 if response.status_code != 200:

@@ -473,6 +473,18 @@ class InfluencerFineTuningService:
         try:
             logger.info(f"파인튜닝 시작: {hf_repo_id}")
 
+            # GPU provider 분기: Modal 이면 Modal 파인튜닝 워커로 위임
+            from app.core.config import settings
+            if getattr(settings, "GPU_PROVIDER", "runpod") == "modal":
+                return await self._run_finetuning_modal(
+                    qa_data=qa_data,
+                    system_message=system_message or system_prompt,
+                    hf_repo_id=hf_repo_id,
+                    hf_token=hf_token,
+                    epochs=epochs,
+                    influencer_id=influencer_id,
+                )
+
             # RunPod 엔드포인트 확인
             endpoint_id = await self.runpod_client.find_or_create_endpoint()
             logger.info(f"🔍 RunPod 엔드포인트 확인: {endpoint_id}")
@@ -517,6 +529,49 @@ class InfluencerFineTuningService:
         except Exception as e:
             logger.error(f"RunPod 파인튜닝 실행 중 오류: {e}")
             return None
+
+    async def _run_finetuning_modal(
+        self,
+        qa_data: List[Dict],
+        system_message: str,
+        hf_repo_id: str,
+        hf_token: str,
+        epochs: int,
+        influencer_id: str,
+    ) -> Optional[str]:
+        """Modal 파인튜닝 워커로 위임 (GPU_PROVIDER=modal).
+
+        Modal finetune 엔드포인트는 학습 완료까지 블로킹(동기)하고
+        {"output": {"status", "adapter_repo"}} 를 반환한다. RunPod 의 비동기
+        job_id 흐름과 달리 완료 시 adapter_repo 를 식별자로 반환한다.
+        (run_finetuning 은 백그라운드 task 에서 호출되므로 블로킹 허용.)
+        """
+        from app.services.modal_manager import get_modal_finetuning_manager
+
+        manager = get_modal_finetuning_manager()
+        payload = {
+            "input": {
+                "influencer_id": influencer_id,
+                "qa_data": qa_data,
+                "system_message": system_message,
+                "hf_token": hf_token,
+                "hf_repo_id": hf_repo_id,
+                "training_epochs": epochs,
+            }
+        }
+        logger.info(
+            f"🚀 Modal 파인튜닝 요청: repo={hf_repo_id}, qa={len(qa_data)}개, epochs={epochs}"
+        )
+        result = await manager.runsync(payload)
+        # Modal finetuning_app 계약: {"output": {"status", "adapter_repo"}}
+        output = result.get("output", result) if isinstance(result, dict) else {}
+        if output.get("status") == "completed":
+            adapter_repo = output.get("adapter_repo") or hf_repo_id
+            logger.info(f"✅ Modal 파인튜닝 완료: {adapter_repo}")
+            return adapter_repo
+        error_msg = f"Modal 파인튜닝 실패: {output}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
 
 
     async def start_finetuning_task(
