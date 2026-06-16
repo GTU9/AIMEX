@@ -232,7 +232,13 @@ async def chatbot_for_user(
             )
         
         # 사용자가 인플루언서에 접근할 수 있는지 확인 (같은 그룹)
-        if influencer.group_id != current_user.group_id:
+        # current_user 는 get_current_user 가 반환하는 JWT payload dict 이므로
+        # 사용자의 소속 그룹(들)을 DB 에서 조회해 비교한다.
+        from app.models.user import User as _User
+        _uid = current_user.get("sub") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
+        _db_user = db.query(_User).filter(_User.user_id == _uid).first()
+        _user_group_ids = [t.group_id for t in _db_user.teams] if _db_user else []
+        if influencer.group_id not in _user_group_ids:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to chat with this influencer"
@@ -320,32 +326,26 @@ async def chatbot_for_user(
                     }
                     
                     result = await vllm_manager.runsync(payload)
-                    
-                    # 응답 전체 로깅
-                    logger.info(f"🔍 [User] RunPod 응답 전체: {json.dumps(result, indent=2, ensure_ascii=False)}")
-                    
-                    # RunPod 응답 처리 (간소화된 형식)
-                    if result.get("status") == "completed":
-                        # 새로운 형식: generated_text가 직접 반환됨
-                        response_text = result.get("generated_text", "")
-                        if response_text:
-                            logger.info(f"✅ 생성된 텍스트: {response_text[:100]}...")
-                        else:
-                            # 이전 형식 호환성을 위한 처리
-                            output = result.get("output", {})
-                            if isinstance(output, dict) and output.get("generated_text"):
-                                response_text = output.get("generated_text", "")
-                            else:
-                                logger.warning(f"⚠️ 응답에 generated_text가 없음: {result}")
-                                response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. 응답 생성 중 문제가 발생했습니다."
-                    elif result.get("status") == "failed":
-                        # 실패한 경우
-                        logger.error(f"❌ RunPod 요청 실패: {result.get('error', 'Unknown error')}")
-                        response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
+                    logger.info(f"🔍 [User] 추론 응답(raw): {str(result)[:300]}")
+
+                    # runsync 는 generated_text 문자열(권장) 또는 dict 를 반환할 수 있음
+                    if isinstance(result, str):
+                        response_text = result.strip()
+                    elif isinstance(result, dict):
+                        _out = result.get("output")
+                        response_text = (
+                            result.get("generated_text")
+                            or (_out.get("generated_text") if isinstance(_out, dict) else None)
+                            or ""
+                        ).strip()
                     else:
-                        # 예상하지 못한 응답 형식
-                        logger.warning(f"⚠️ 예상하지 못한 RunPod 응답 형식: {result}")
-                        response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
+                        response_text = ""
+
+                    if response_text:
+                        logger.info(f"✅ 생성된 텍스트: {response_text[:100]}...")
+                    else:
+                        logger.warning(f"⚠️ 빈/예상외 추론 응답: {result}")
+                        response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. 응답 생성 중 문제가 발생했습니다."
 
                 logger.info(f"✅ RunPod 응답 생성 성공: {influencer.influencer_name}")
 

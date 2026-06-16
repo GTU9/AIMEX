@@ -64,6 +64,15 @@ class BaseModalManager:
             )
         return self._url
 
+    async def find_endpoint(self) -> Optional[Dict[str, Any]]:
+        """RunPod 매니저 호환용. Modal 은 고정 URL 기반이라 엔드포인트 탐색이
+        불필요하므로, URL 이 설정돼 있으면 의사 엔드포인트 정보를 반환한다."""
+        return {"id": self._url, "url": self._url} if self._url else None
+
+    async def get_or_create_endpoint(self) -> Optional[Dict[str, Any]]:
+        """RunPod 매니저 호환용. Modal 은 생성 과정이 없어 find_endpoint 와 동일."""
+        return await self.find_endpoint()
+
     async def health_check(self) -> HealthCheckResult:
         """Modal 엔드포인트 health check
 
