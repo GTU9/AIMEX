@@ -35,6 +35,9 @@ from .mcp_server import MCPServer
 # 이미지 생성 관련 모델들
 from .generated_image import GeneratedImage
 
+# 인플루언서 QA 쌍 (동기 QA 파이프라인용)
+from .influencer_qa import InfluencerQAPair
+
 # vLLM에서 공유하는 Enum들 import
 try:
     import sys
@@ -83,4 +86,5 @@ __all__ = [
     "FineTuningStatus",
     "MCPServer",
     "GeneratedImage",
+    "InfluencerQAPair",
 ]

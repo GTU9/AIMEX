@@ -64,6 +64,7 @@ from app.services.background_tasks import (
     get_background_task_manager,
     BackgroundTaskManager,
 )
+from app.services.influencer_pipeline import run_creation_pipeline
 from fastapi import Request, status
 from app.services.influencers.qa_generator import QAGenerationStatus
 from app.services.finetuning_service import (
@@ -488,7 +489,7 @@ async def createnew_influencer(
         print(f"⚡ 백그라운드 QA 생성 작업 시작 (print) - influencer_id: {influencer.influencer_id}")  # 추가 로그
         # 백그라운드에서 QA 생성 작업 시작
         background_tasks.add_task(
-            generate_influencer_qa_background, influencer.influencer_id, user_id
+            run_creation_pipeline, influencer.influencer_id, user_id
         )
         logger.info(f"✅ 백그라운드 태스크 추가 완료 - influencer_id: {influencer.influencer_id}")
         print(f"✅ 백그라운드 태스크 추가 완료 (print) - influencer_id: {influencer.influencer_id}")  # 추가 로그
