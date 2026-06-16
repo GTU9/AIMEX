@@ -28,7 +28,7 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 
 # Volume 내 모델/LoRA 캐시 경로
@@ -52,7 +52,9 @@ image = (
     .pip_install(
         "vllm==0.9.2",
         "torch",
-        "transformers>=4.43.0",
+        # transformers 4.54+ 는 aimv2(Ovis)를 native 등록 → vLLM 0.9.2 의 동일 등록과
+        # 충돌(ValueError: 'aimv2' is already used). 4.54 미만으로 고정(파인튜닝과 동일).
+        "transformers==4.53.1",
         "peft",
         "huggingface_hub",
         "sentencepiece",

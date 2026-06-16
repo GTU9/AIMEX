@@ -30,7 +30,7 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 MODELS_DIR = "/models"
 HF_CACHE_DIR = f"{MODELS_DIR}/hf_cache"
@@ -49,18 +49,22 @@ app = modal.App("aimex-finetuning")
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "torch",
-        "transformers>=4.43.0",
-        "accelerate",
-        "peft",
-        "bitsandbytes",
-        "datasets",
+        # EXAONE-3.5 trust_remote_code 호환 창:
+        #   - transformers 5.0.0+ : get_input_embeddings/_tied_weights_keys 비호환(너무 높음)
+        #   - transformers 4.48 미만 : 원격코드가 쓰는 RopeParameters 없음(너무 낮음)
+        #   → 4.48~4.56 중간 버전(4.53.1)으로 고정.
+        "torch==2.5.1",
+        "transformers==4.53.1",
+        "accelerate==1.8.1",
+        "peft==0.14.0",
+        "bitsandbytes==0.45.0",
+        "datasets==3.1.0",
+        "numpy<2",
         "safetensors",
         "huggingface_hub",
         "sentencepiece",
         "scipy",
         "scikit-learn",
-        "numpy",
         "requests",
         "fastapi[standard]",
     )
@@ -96,9 +100,76 @@ def _create_chat_format(tokenizer, instruction: str, output: str, system_msg: st
     )
 
 
+def _normalize_qa_data(qa_data: List[Dict]) -> List[Dict]:
+    """다양한 QA 입력 포맷을 학습용 단일턴 {"question","answer"} 리스트로 정규화.
+
+    torch/transformers 등 무거운 의존 없이 단독 호출 가능한 순수 함수
+    (단위 테스트용). 수용 포맷:
+      (a) {"question": str, "answer": str}            - 단일 QA
+      (b) {"q": str, "a": str}                        - OpenAI 배치 생성 단일 QA
+      (c) {"user": str, "assistant": str}             - user/assistant 단일 턴
+      (d) {"messages": [{"role","content"}, ...]}     - 멀티턴 세션
+                                                        (각 assistant 턴을 직전
+                                                         user 발화와 묶어 펼침)
+      (e) {"conversation_history": [...], "user","assistant"}
+                                                        - 멀티턴 컨텍스트의 최종 턴
+                                                          ((c)와 동일 처리)
+    system 역할 메시지는 system_message 로 별도 전달되므로 무시한다.
+    """
+    normalized: List[Dict] = []
+
+    for item in qa_data:
+        if not isinstance(item, dict):
+            logger.warning("QA 항목이 dict 가 아님, 건너뜀: %r", type(item))
+            continue
+
+        # (d) 멀티턴 세션: messages 배열을 각 assistant 턴 기준으로 펼침
+        if isinstance(item.get("messages"), list):
+            last_user: Optional[str] = None
+            for msg in item["messages"]:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role")
+                content = (msg.get("content") or "").strip()
+                if not content:
+                    continue
+                if role == "user":
+                    last_user = content
+                elif role == "assistant" and last_user:
+                    normalized.append({"question": last_user, "answer": content})
+                    last_user = None
+            continue
+
+        # (a)/(b)/(c)/(e): 키 별칭 정규화
+        question = (
+            item.get("question")
+            or item.get("q")
+            or item.get("user")
+            or ""
+        ).strip()
+        answer = (
+            item.get("answer")
+            or item.get("a")
+            or item.get("assistant")
+            or ""
+        ).strip()
+
+        if not question or not answer:
+            logger.warning("빈 질문/답변 건너뜀: q=%r a=%r", question[:30], answer[:30])
+            continue
+
+        normalized.append({"question": question, "answer": answer})
+
+    if not normalized:
+        raise ValueError("정규화 후 유효한 QA 샘플이 없습니다.")
+
+    return normalized
+
+
 def _prepare_dataset(qa_data: List[Dict], system_message: str, tokenizer, max_length: int = 2048):
     from datasets import Dataset
 
+    qa_data = _normalize_qa_data(qa_data)
     formatted = [
         {"text": _create_chat_format(tokenizer, item["question"], item["answer"], system_message)}
         for item in qa_data
@@ -310,15 +381,27 @@ def finetune(item: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 @app.local_entrypoint()
 def main():
-    result = run_finetuning.remote(
-        {
-            "influencer_id": "demo",
-            "hf_token": os.environ.get("HF_TOKEN", ""),
-            "base_model": DEFAULT_MODEL,
-            "qa_data": [
-                {"question": "안녕?", "answer": "안녕하세요! 반가워요."},
-                {"question": "이름이 뭐야?", "answer": "저는 데모 인플루언서예요."},
-            ],
-        }
-    )
+    # QA_DATA_FILE 환경변수가 있으면 로컬 JSON 파일에서 qa_data 로드,
+    # 없으면 데모 2개 사용. (실제 캐릭터 파인튜닝: build_character_qa.py 결과 사용)
+    qa_file = os.environ.get("QA_DATA_FILE")
+    if qa_file:
+        with open(qa_file, encoding="utf-8") as f:
+            qa_data = json.load(f)
+    else:
+        qa_data = [
+            {"question": "안녕?", "answer": "안녕하세요! 반가워요."},
+            {"question": "이름이 뭐야?", "answer": "저는 데모 인플루언서예요."},
+        ]
+
+    payload = {
+        "influencer_id": os.environ.get("INFLUENCER_ID", "demo"),
+        "hf_token": os.environ.get("HF_TOKEN", ""),
+        "hf_repo_id": os.environ.get("HF_REPO_ID"),
+        "base_model": DEFAULT_MODEL,
+        "system_message": os.environ.get("SYSTEM_MESSAGE", DEFAULT_SYSTEM_MESSAGE),
+        "qa_data": qa_data,
+        "training_epochs": int(os.environ.get("TRAINING_EPOCHS", "3")),
+    }
+    print(f"파인튜닝 시작: qa={len(qa_data)}개, repo={payload['hf_repo_id']}")
+    result = run_finetuning.remote(payload)
     print(result)
