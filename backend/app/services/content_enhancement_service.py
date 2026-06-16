@@ -10,6 +10,33 @@ class ContentEnhancementService:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
+    def get_user_enhancements(self, db, user_id: str, page: int = 1, page_size: int = 10):
+        """사용자의 콘텐츠 향상 이력 조회(페이지네이션)."""
+        from app.models.content_enhancement import ContentEnhancement
+        from app.schemas.content_enhancement import (
+            ContentEnhancementList,
+            ContentEnhancementResponse,
+        )
+
+        page = max(1, int(page))
+        page_size = max(1, int(page_size))
+        base = db.query(ContentEnhancement).filter(
+            ContentEnhancement.user_id == user_id
+        )
+        total = base.count()
+        rows = (
+            base.order_by(ContentEnhancement.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return ContentEnhancementList(
+            enhancements=[ContentEnhancementResponse.model_validate(r) for r in rows],
+            total_count=total,
+            page=page,
+            page_size=page_size,
+        )
+
     async def generate_content(
         self,
         topic: str,

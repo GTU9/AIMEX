@@ -394,6 +394,23 @@ async def get_documents(
         raise HTTPException(status_code=500, detail=f"문서 목록 조회 실패: {str(e)}")
 
 
+@router.get("/stats")
+async def get_document_stats(db: Session = Depends(get_db)):
+    """문서 통계 조회
+
+    주의: 정적 경로(/stats)는 동적 경로(/{documents_id})보다 먼저 선언해야
+    'stats'가 문서 ID로 매칭되는 것을 방지한다.
+    """
+    try:
+        rag_document_service = get_rag_document_service()
+        stats = await rag_document_service.get_all_document_stats(db=db)
+        return stats
+
+    except Exception as e:
+        logger.error(f"문서 통계 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"문서 통계 조회 실패: {str(e)}")
+
+
 @router.get("/{documents_id}", response_model=DocumentResponse)
 async def get_document(documents_id: str, db: Session = Depends(get_db)):
     """특정 문서 조회"""
@@ -438,16 +455,3 @@ async def delete_document(
     except Exception as e:
         logger.error(f"문서 삭제 실패: {e}")
         raise HTTPException(status_code=500, detail=f"문서 삭제 실패: {str(e)}")
-
-
-@router.get("/stats")
-async def get_document_stats(db: Session = Depends(get_db)):
-    """문서 통계 조회"""
-    try:
-        rag_document_service = get_rag_document_service()
-        stats = await rag_document_service.get_all_document_stats(db=db)
-        return stats
-
-    except Exception as e:
-        logger.error(f"문서 통계 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail=f"문서 통계 조회 실패: {str(e)}")

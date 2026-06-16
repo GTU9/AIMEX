@@ -522,7 +522,8 @@ async def image_generation_health_check():
             services_status["image_storage"] = f"error: {str(e)}"
         
         try:
-            comfyui_service = get_comfyui_service()
+            # 실제 생성 경로가 쓰는 서비스로 프로브 (get_comfyui_service 는 미정의였음)
+            comfyui_service = get_comfyui_flux_service()
             services_status["comfyui"] = "healthy"
         except Exception as e:
             services_status["comfyui"] = f"error: {str(e)}"

@@ -113,6 +113,55 @@ async def get_hf_tokens_by_group(
         )
 
 
+@router.get("/unassigned", response_model=List[HFTokenManage])
+async def get_unassigned_tokens(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    할당되지 않은 허깅페이스 토큰 목록 조회 (관리자만 가능)
+
+    주의: 정적 경로(/unassigned)는 동적 경로(/{hf_manage_id})보다 먼저 선언해야
+    'unassigned'가 토큰 ID로 매칭되는 것을 방지한다. 결과가 없으면 빈 배열을 반환한다.
+    """
+    try:
+        if not check_admin_permission(current_user, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="관리자만 토큰 할당을 관리할 수 있습니다"
+            )
+
+        service = get_hf_token_service()
+
+        # 그룹 ID가 null이거나 존재하지 않는 그룹에 할당된 토큰들 조회
+        from app.models.user import HFTokenManage
+        unassigned_tokens = db.query(HFTokenManage).filter(
+            HFTokenManage.group_id.is_(None)
+        ).all()
+
+        # 응답에서 토큰 값들을 마스킹 처리
+        masked_tokens = []
+        for token in unassigned_tokens:
+            token_dict = token.__dict__.copy()
+            if 'hf_token_value' in token_dict:
+                # 복호화 후 마스킹
+                decrypted_value = decrypt_sensitive_data(token_dict['hf_token_value'])
+                token_dict['hf_token_masked'] = service.mask_token_value(decrypted_value)
+                del token_dict['hf_token_value']
+
+            masked_tokens.append(HFTokenManage(**token_dict))
+
+        return masked_tokens
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
 @router.get("/{hf_manage_id}", response_model=HFTokenManage)
 async def get_hf_token_by_id(
     hf_manage_id: str,
@@ -292,54 +341,6 @@ async def get_hf_token_count_by_group(
 
 
 # 팀 토큰 할당 관련 API
-
-@router.get("/unassigned", response_model=List[HFTokenManage])
-async def get_unassigned_tokens(
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    할당되지 않은 허깅페이스 토큰 목록 조회 (관리자만 가능)
-    
-    팀에 할당할 수 있는 토큰들을 조회합니다.
-    """
-    try:
-        if not check_admin_permission(current_user, db):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="관리자만 토큰 할당을 관리할 수 있습니다"
-            )
-        
-        service = get_hf_token_service()
-        
-        # 그룹 ID가 null이거나 존재하지 않는 그룹에 할당된 토큰들 조회
-        from app.models.user import HFTokenManage
-        unassigned_tokens = db.query(HFTokenManage).filter(
-            HFTokenManage.group_id.is_(None)
-        ).all()
-        
-        # 응답에서 토큰 값들을 마스킹 처리
-        masked_tokens = []
-        for token in unassigned_tokens:
-            token_dict = token.__dict__.copy()
-            if 'hf_token_value' in token_dict:
-                # 복호화 후 마스킹
-                decrypted_value = decrypt_sensitive_data(token_dict['hf_token_value'])
-                token_dict['hf_token_masked'] = service.mask_token_value(decrypted_value)
-                del token_dict['hf_token_value']
-            
-            masked_tokens.append(HFTokenManage(**token_dict))
-        
-        return masked_tokens
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-
 
 @router.post("/teams/{group_id}/assign")
 async def assign_tokens_to_team(

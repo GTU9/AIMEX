@@ -123,17 +123,22 @@ workflow_only_router = FastAPIRouter()
 @workflow_only_router.get("")
 async def list_workflows_compat(category: str = None):
     """워크플로우 목록 조회 (호환성)"""
-    from app.api.v1.endpoints.comfyui import list_workflows
+    from app.services.workflow_manager import get_workflow_manager
 
-    return await list_workflows(category)
+    workflows = await get_workflow_manager().list_workflows()
+    return {"workflows": [w.model_dump() for w in workflows], "total_count": len(workflows)}
 
 
 @workflow_only_router.get("/{workflow_id}")
 async def get_workflow_compat(workflow_id: str):
     """특정 워크플로우 조회 (호환성)"""
-    from app.api.v1.endpoints.comfyui import get_workflow
+    from fastapi import HTTPException
+    from app.services.workflow_manager import get_workflow_manager
 
-    return await get_workflow(workflow_id)
+    workflow = await get_workflow_manager().get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="워크플로우를 찾을 수 없습니다.")
+    return workflow.model_dump()
 
 
 api_router.include_router(workflow_only_router, prefix="/workflows", tags=["Workflows"])

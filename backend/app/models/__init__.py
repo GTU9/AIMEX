@@ -38,6 +38,9 @@ from .generated_image import GeneratedImage
 # 인플루언서 QA 쌍 (동기 QA 파이프라인용)
 from .influencer_qa import InfluencerQAPair
 
+# RAG 문서 / 대화 이력
+from .rag import Documents, RAGChatHistory
+
 # vLLM에서 공유하는 Enum들 import
 try:
     import sys
@@ -87,4 +90,6 @@ __all__ = [
     "MCPServer",
     "GeneratedImage",
     "InfluencerQAPair",
+    "Documents",
+    "RAGChatHistory",
 ]
