@@ -83,98 +83,105 @@ class S3FileListResponse(BaseModel):
 
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
-    file: UploadFile = File(..., description="PDF 파일"), db: Session = Depends(get_db)
+    file: UploadFile = File(..., description="PDF 또는 텍스트 파일"),
+    influencer_id: Optional[str] = Form(None, description="소유 인플루언서 ID"),
+    db: Session = Depends(get_db),
 ):
-    """PDF 문서를 S3에 업로드하고 데이터베이스에 저장"""
+    """문서를 로컬 파일시스템에 저장하고 DB에 기록 (S3 제거, NAS 로컬 전환)."""
+    import uuid
+    from app.core.config import settings
+
     try:
-        logger.info(f"📥 문서 업로드 시작: {file.filename}")
+        logger.info(f"📥 문서 업로드 시작: {file.filename} (influencer_id={influencer_id})")
 
-        # 파일 검증
-        if not file.filename.lower().endswith(".pdf"):
-            raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
+        fname = (file.filename or "").lower()
+        if not (fname.endswith(".pdf") or fname.endswith(".txt") or fname.endswith(".md")):
+            raise HTTPException(status_code=400, detail="PDF/TXT/MD 파일만 업로드 가능합니다.")
 
-        if file.size > 10 * 1024 * 1024:  # 10MB 제한
-            raise HTTPException(
-                status_code=400, detail="파일 크기는 10MB를 초과할 수 없습니다."
-            )
+        content = await file.read()
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="파일 크기는 10MB를 초과할 수 없습니다.")
 
-        logger.info(f"✅ 파일 검증 통과: {file.filename} ({file.size} bytes)")
+        # 로컬 저장 (LOCAL_STORAGE_PATH 의 형제 디렉터리 documents/)
+        base_dir = os.path.join(
+            os.path.dirname(settings.LOCAL_STORAGE_PATH.rstrip("/")) or ".", "documents"
+        )
+        os.makedirs(base_dir, exist_ok=True)
+        documents_id = str(uuid.uuid4())
+        save_path = os.path.join(base_dir, f"{documents_id}_{file.filename}")
+        with open(save_path, "wb") as f:
+            f.write(content)
+        logger.info(f"✅ 로컬 저장: {save_path} ({len(content)} bytes)")
 
-        # 임시 파일로 저장
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_file_path = temp_file.name
-            logger.info(f"📁 임시 파일 저장: {temp_file_path}")
+        row = Documents(
+            documents_id=documents_id,
+            documents_name=file.filename,
+            file_size=len(content),
+            s3_url=save_path,
+            is_vectorized=0,
+            influencer_id=influencer_id,
+        )
+        db.add(row)
+        db.commit()
 
-        try:
-            # S3에 PDF 파일 업로드
-            s3_url = None
-            try:
-                from app.services.s3_service import get_s3_service
-
-                s3_service = get_s3_service()
-
-                if s3_service.is_available():
-                    # S3 키 생성 (documents/YYYY-MM-DD/HH-MM-SS_filename.pdf)
-                    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                    s3_key = f"documents/{timestamp}/{file.filename}"
-
-                    # S3에 업로드
-                    s3_url = s3_service.upload_file(
-                        temp_file_path, s3_key, content_type="application/pdf"
-                    )
-
-                    if s3_url:
-                        logger.info(f"✅ S3 업로드 성공: {s3_url}")
-                    else:
-                        logger.warning("⚠️ S3 업로드 실패")
-                        raise HTTPException(
-                            status_code=500, detail="S3 업로드에 실패했습니다."
-                        )
-                else:
-                    logger.warning("⚠️ S3 서비스를 사용할 수 없습니다")
-                    raise HTTPException(
-                        status_code=500, detail="S3 서비스를 사용할 수 없습니다."
-                    )
-            except Exception as s3_error:
-                logger.error(f"❌ S3 업로드 중 오류: {s3_error}")
-                raise HTTPException(
-                    status_code=500, detail=f"S3 업로드 실패: {str(s3_error)}"
-                )
-
-            # 데이터베이스에 문서 정보 저장
-            rag_document_service = get_rag_document_service()
-            documents_id = rag_document_service.save_document_info(
-                documents_name=file.filename, file_size=file.size, s3_url=s3_url, db=db
-            )
-
-            if documents_id:
-                logger.info(f"✅ 문서 정보 저장 완료: {documents_id}")
-                return DocumentUploadResponse(
-                    success=True,
-                    message="문서가 성공적으로 업로드되고 저장되었습니다.",
-                    documents_id=documents_id,
-                    s3_url=s3_url,
-                    file_size=file.size,
-                )
-            else:
-                logger.error("❌ 문서 정보 저장 실패")
-                raise HTTPException(
-                    status_code=500, detail="데이터베이스 저장에 실패했습니다."
-                )
-
-        finally:
-            # 임시 파일 정리
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-                logger.info(f"🗑️ 임시 파일 삭제: {temp_file_path}")
+        return DocumentUploadResponse(
+            success=True,
+            message="문서가 로컬에 저장되었습니다.",
+            documents_id=documents_id,
+            s3_url=save_path,
+            file_size=len(content),
+        )
 
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         logger.error(f"❌ 문서 업로드 실패: {e}")
         raise HTTPException(status_code=500, detail=f"문서 업로드 실패: {str(e)}")
+
+
+@router.post("/{documents_id}/vectorize")
+async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
+    """문서를 청킹→임베딩(Modal)→Milvus 저장하여 RAG 검색 가능 상태로 만든다."""
+    from app.services.rag_service import RAGDocumentProcessor, RAGConfig
+    from app.services.embedding_client import embed_texts
+    from app.services.rag_vector_store import get_vector_store
+
+    doc = db.query(Documents).filter(Documents.documents_id == documents_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다.")
+    if not doc.influencer_id:
+        raise HTTPException(status_code=400, detail="문서에 influencer_id 가 없습니다.")
+
+    proc = RAGDocumentProcessor(RAGConfig())
+    path = doc.s3_url
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="원본 파일이 존재하지 않습니다.")
+
+    if path.lower().endswith(".pdf"):
+        qa = await proc.process_pdf(path)
+        chunks = [q["answer"] for q in qa]
+    else:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            text = proc._preprocess_text(f.read())
+        chunks = proc._create_chunks(text)
+
+    chunks = [c for c in chunks if c and c.strip()]
+    if not chunks:
+        raise HTTPException(status_code=400, detail="추출된 텍스트가 없습니다.")
+
+    vecs = await embed_texts(chunks)
+    store = get_vector_store()
+    store.delete_by_influencer(doc.influencer_id)  # 재벡터화 시 해당 인플루언서 기존 벡터 제거
+    store.upsert([
+        {"text": c, "embedding": vecs[i], "influencer_id": doc.influencer_id,
+         "source": doc.documents_name, "chunk_id": i}
+        for i, c in enumerate(chunks)
+    ])
+    doc.is_vectorized = 1
+    db.commit()
+    logger.info(f"✅ 벡터화 완료: {documents_id} chunks={len(chunks)} influencer={doc.influencer_id}")
+    return {"documents_id": documents_id, "chunks": len(chunks), "is_vectorized": 1}
 
 
 @router.put("/{documents_id}/vectorization", response_model=VectorizationUpdateResponse)
