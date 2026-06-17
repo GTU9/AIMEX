@@ -530,7 +530,7 @@ export default function ChatPage() {
         try {
           ws.send(currentMessage);
           
-          // 타임아웃 설정 (30초)
+          // 타임아웃 설정 (5분: RAG/MCP 검색 + Modal 콜드스타트 고려)
           timeoutRef.current = setTimeout(() => {
             setIsLoading(false);
             setLoadingMessage(""); // 로딩 메시지 초기화
@@ -550,7 +550,7 @@ export default function ChatPage() {
               });
               return newMessages;
             });
-          }, 30000);
+          }, 300000);
         } catch (error) {
           console.error("WebSocket 메시지 전송 중 오류:", error);
           setIsLoading(false);

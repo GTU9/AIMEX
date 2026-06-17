@@ -597,12 +597,29 @@ async def chatbot(
                             )
                             enhanced_message = user_message
 
-                # === RAG: 문서 컨텍스트 검색 (실패/0건 시 폴백) ===
+                # 메시지 수신 즉시 활동 표시 (RAG/MCP/Modal 콜드스타트 동안 프론트 타임아웃 방지)
+                await websocket.send_text(
+                    json.dumps({"type": "thinking", "message": "생각중..."}, ensure_ascii=False)
+                )
+
+                # === RAG: 문서 우선, 없으면 MCP 검색으로 보완 ===
                 rag_context, rag_sources = await build_rag_context(
                     influencer_id or "", user_message
                 )
+                context_kind = "doc"
+                if not rag_context:
+                    # 문서에 근거가 없으면 할당된 MCP(웹검색 등) 서버로 보완
+                    from app.services.mcp_search_service import search_via_assigned_mcp
+
+                    mcp_ctx, mcp_sources = await search_via_assigned_mcp(
+                        influencer_id or "", user_message, db
+                    )
+                    if mcp_ctx:
+                        rag_context, rag_sources = mcp_ctx, mcp_sources
+                        context_kind = "search"
                 rag_suffix = (
-                    f"\n\n다음 참고문서의 사실에 근거해 답하라:\n{rag_context}"
+                    f"\n\n다음 {'참고문서' if context_kind == 'doc' else '웹 검색 결과'}의 "
+                    f"사실에 근거해 답하라:\n{rag_context}"
                     if rag_context
                     else ""
                 )

@@ -16,6 +16,11 @@ greenlet==3.2.3
 pymilvus==2.4.9
 setuptools<81  # pymilvus 가 pkg_resources 사용
 
+# MCP 도구 연동 (웹검색 등) — starlette 는 위 0.27.0 핀 유지 필요(FastAPI 0.104 호환)
+langchain-mcp-adapters==0.3.0
+mcp==1.28.0
+ddgs  # 무료 웹검색(DuckDuckGo)
+
 # Authentication & Security
 python-jose==3.3.0
 passlib==1.7.4
