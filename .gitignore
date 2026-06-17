@@ -114,6 +114,9 @@ logs/
 .omc/
 docs/
 
+# 브라우저 e2e 검증 아티팩트 (Playwright node_modules / 스크린샷 / 리포트)
+.e2e/
+
 # Documentation and manuals
 **/API_DESIGN.md
 **/API_KEYS_MANUAL.md
