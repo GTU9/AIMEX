@@ -27,7 +27,8 @@ import {
   IntegrationsTab,
   SettingsTab,
   VoiceTab,
-  McpTab
+  McpTab,
+  DocumentsTab
 } from "./components";
 import {
   Dialog,
@@ -2759,6 +2760,11 @@ function ModelDetailContent() {
               model={model}
               MCPServerSelector={MCPServerSelector}
             />
+          </TabsContent>
+
+          {/* 문서/지식 탭 (RAG) */}
+          <TabsContent value="documents">
+            <DocumentsTab influencerId={model.id} />
           </TabsContent>
         </Tabs>
 

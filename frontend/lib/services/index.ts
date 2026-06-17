@@ -5,6 +5,7 @@ export { default as PostService } from './post.service'
 export { default as PermissionService } from './permission.service'
 export { default as MCPService } from './mcp.service'
 export * from './rag.service';
+export * from './document.service';
 
 // Re-export types
 export type {

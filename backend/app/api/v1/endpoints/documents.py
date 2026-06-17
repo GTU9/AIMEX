@@ -184,6 +184,31 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
     return {"documents_id": documents_id, "chunks": len(chunks), "is_vectorized": 1}
 
 
+@router.get("/by-influencer/{influencer_id}", response_model=DocumentListResponse)
+async def list_documents_by_influencer(
+    influencer_id: str, db: Session = Depends(get_db)
+):
+    """특정 인플루언서에 속한 문서 목록 조회."""
+    rows = (
+        db.query(Documents)
+        .filter(Documents.influencer_id == influencer_id)
+        .order_by(Documents.created_at.desc())
+        .all()
+    )
+    items = [
+        DocumentResponse(
+            documents_id=r.documents_id,
+            documents_name=r.documents_name,
+            file_size=r.file_size,
+            s3_url=r.s3_url,
+            is_vectorized=r.is_vectorized or 0,
+            created_at=r.created_at.isoformat() if r.created_at else None,
+        )
+        for r in rows
+    ]
+    return DocumentListResponse(documents=items, total_count=len(items))
+
+
 @router.put("/{documents_id}/vectorization", response_model=VectorizationUpdateResponse)
 async def update_vectorization_status(
     documents_id: str,

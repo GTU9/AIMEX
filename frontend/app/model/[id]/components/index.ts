@@ -6,3 +6,4 @@ export { default as IntegrationsTab } from './IntegrationsTab';
 export { default as SettingsTab } from './SettingsTab';
 export { default as VoiceTab } from './VoiceTab';
 export { default as McpTab } from './McpTab';
+export { default as DocumentsTab } from './DocumentsTab';
