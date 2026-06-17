@@ -149,4 +149,23 @@ async def batch_generate_embeddings(texts: List[str], **kwargs) -> List[List[flo
     async with get_embedding_client() as client:
         # device 파라미터 제거 (멀티프로세싱에서 자동으로 GPU 1 사용)
         response = await client.batch_embedding(texts, **kwargs)
-        return response.embeddings 
+        return response.embeddings
+
+
+async def embed_texts(texts: List[str]) -> List[List[float]]:
+    """Modal bge-m3 임베딩 엔드포인트 호출 (RAG용).
+
+    settings.MODAL_EMBEDDING_URL 로 POST {"texts": [...]} → {"embeddings": [[...]], "dimension": 1024}
+    실패 시 예외를 던진다(호출측에서 graceful 폴백 처리).
+    """
+    from app.core.config import settings
+
+    if not texts:
+        return []
+    url = settings.MODAL_EMBEDDING_URL
+    if not url:
+        raise RuntimeError("MODAL_EMBEDDING_URL 미설정")
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(url, json={"texts": texts})
+        resp.raise_for_status()
+        return resp.json()["embeddings"]
