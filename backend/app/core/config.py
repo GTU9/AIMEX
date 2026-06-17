@@ -120,6 +120,15 @@ class Settings(BaseSettings):
     # 선택: Modal proxy auth 토큰 (헤더 Modal-Key/Modal-Secret 또는 Bearer)
     MODAL_AUTH_TOKEN: Optional[str] = os.getenv("MODAL_AUTH_TOKEN")
 
+    # RAG 설정
+    # 임베딩: Modal bge-m3 엔드포인트(POST /embed)
+    MODAL_EMBEDDING_URL: Optional[str] = os.getenv("MODAL_EMBEDDING_URL")
+    # 벡터DB: Milvus. Docker standalone(http://host:19530). 데이터는 로컬 바인드마운트 볼륨에 저장.
+    MILVUS_URI: str = os.getenv("MILVUS_URI", "http://localhost:19530")
+    MILVUS_TOKEN: Optional[str] = os.getenv("MILVUS_TOKEN")
+    RAG_TOP_K: int = int(os.getenv("RAG_TOP_K", "4"))
+    RAG_SCORE_THRESHOLD: float = float(os.getenv("RAG_SCORE_THRESHOLD", "0.6"))
+
     # 커스텀 노드 설정
     RUNPOD_CUSTOM_NODES: List[str] = []
     CUSTOM_NODES_INSTALL_TIMEOUT: int = int(
