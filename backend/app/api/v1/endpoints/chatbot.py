@@ -597,6 +597,20 @@ async def chatbot(
                             )
                             enhanced_message = user_message
 
+                # === RAG: 문서 컨텍스트 검색 (실패/0건 시 폴백) ===
+                rag_context, rag_sources = await build_rag_context(
+                    influencer_id or "", user_message
+                )
+                rag_suffix = (
+                    f"\n\n다음 참고문서의 사실에 근거해 답하라:\n{rag_context}"
+                    if rag_context
+                    else ""
+                )
+                if rag_context:
+                    await websocket.send_text(
+                        json.dumps({"type": "sources", "data": rag_sources}, ensure_ascii=False)
+                    )
+
                 # MCP 처리 로직 추가
                 mcp_result = None
                 tools_used = []
@@ -643,7 +657,7 @@ async def chatbot(
                         "input": {
                             "hf_token": hf_token,
                             "hf_repo": hf_repo,
-                            "system_message": system_prompt,
+                            "system_message": system_prompt + rag_suffix,
                             "prompt": mcp_result,
                             "temperature": 1,
                             "max_tokens": 2048
@@ -760,7 +774,7 @@ async def chatbot(
                     "input": {
                         "hf_token": hf_token,
                         "hf_repo": hf_repo,
-                        "system_message": system_prompt,
+                        "system_message": system_prompt + rag_suffix,
                         "prompt": final_prompt,
                         "temperature": 1,
                         "max_tokens": 2048
@@ -805,6 +819,25 @@ async def chatbot(
                 await websocket.send_text(
                     json.dumps({"type": "complete", "content": ""}, ensure_ascii=False)
                 )
+
+                # RAG 사용 시 대화 이력 저장 (실패해도 채팅에는 영향 없음)
+                if rag_context:
+                    try:
+                        from app.models.rag import RAGChatHistory
+
+                        db.add(
+                            RAGChatHistory(
+                                user_id=(influencer_id or "")[:36],
+                                group_id=group_id or 0,
+                                question=user_message,
+                                answer=full_response,
+                                sources=rag_sources,
+                            )
+                        )
+                        db.commit()
+                    except Exception as e:
+                        logger.warning(f"[WS] rag_chat_history 저장 실패: {e}")
+                        db.rollback()
 
                 # TTS 생성 시작 (비동기로 처리)
                 if full_response.strip():
@@ -886,6 +919,36 @@ async def chatbot(
                 logger.info(f"[WS] 데이터베이스 연결 정리 완료")
         except Exception as e:
             logger.error(f"[WS] 데이터베이스 연결 정리 실패: {e}")
+
+
+async def build_rag_context(influencer_id: str, query: str) -> tuple[str, list]:
+    """인플루언서의 벡터화 문서에서 query 관련 컨텍스트를 검색.
+
+    반환: (context_str, sources). Milvus/임베딩 실패 또는 0건이면 ('', []) 로
+    graceful 폴백하여 챗봇이 절대 중단되지 않게 한다.
+    """
+    if not influencer_id or not query:
+        return "", []
+    try:
+        from app.services.embedding_client import embed_texts
+        from app.services.rag_vector_store import get_vector_store
+
+        qvec = (await embed_texts([query]))[0]
+        hits = get_vector_store().search(
+            qvec, influencer_id, settings.RAG_TOP_K, settings.RAG_SCORE_THRESHOLD
+        )
+        if not hits:
+            return "", []
+        ctx = "\n\n".join(f"[참고문서] {h['text']}" for h in hits)
+        sources = [
+            {"text": h["text"][:200], "score": round(h.get("score", 0.0), 3), "source": h.get("source")}
+            for h in hits
+        ]
+        logger.info(f"[WS] RAG 컨텍스트 {len(hits)}건 주입 (influencer={influencer_id})")
+        return ctx, sources
+    except Exception as e:
+        logger.warning(f"[WS] RAG 컨텍스트 생성 실패(폴백): {e}")
+        return "", []
 
 
 async def _get_hf_token_by_group(group_id: int, db: Session) -> str | None:
