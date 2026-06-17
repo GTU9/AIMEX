@@ -728,7 +728,8 @@ class TTSRunPodManager(BaseRunPodManager):
                     "voice_id": job_input.get("voice_id", None),
                 }
             }
-            print('payload', payload)
+            from app.utils.log_redaction import safe_json
+            print('payload', safe_json(payload))
             # None 값 제거
             payload["input"] = {k: v for k, v in payload["input"].items() if v is not None}
             
@@ -1031,7 +1032,8 @@ class VLLMRunPodManager(BaseRunPodManager):
         }
         
         logger.info(f"⏳ RunPod runsync 요청: {url}")
-        logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)[:500]}...")
+        from app.utils.log_redaction import safe_json
+        logger.info(f"📦 Payload: {safe_json(payload)}...")
         
         try:
             async with httpx.AsyncClient(timeout=300) as client:

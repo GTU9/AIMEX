@@ -151,7 +151,8 @@ class ModalVLLMManager(BaseModalManager):
         url = self._require_url()
 
         logger.info(f"⏳ Modal runsync 요청: {url}")
-        logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False)[:500]}...")
+        from app.utils.log_redaction import safe_json
+        logger.info(f"📦 Payload: {safe_json(payload)}...")
 
         try:
             async with httpx.AsyncClient(timeout=300) as client:

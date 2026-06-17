@@ -217,7 +217,8 @@ class InstagramService:
                 logger.info(f"   - 수신자 ID: {recipient_id}")
                 logger.info(f"   - 메시지: {message_text}")
                 logger.info(f"   - 액세스 토큰 존재: {bool(access_token)}")
-                logger.info(f"   - 페이로드: {payload}")
+                from app.utils.log_redaction import safe_json
+                logger.info(f"   - 페이로드: {safe_json(payload)}")
                 
                 response = await client.post(url, json=payload)
                 
