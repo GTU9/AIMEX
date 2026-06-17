@@ -2,7 +2,7 @@
 RAG 관련 모델
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey
 from sqlalchemy.sql import func
 from app.models.base import Base
 
@@ -15,8 +15,15 @@ class Documents(Base):
     documents_id = Column(String(36), primary_key=True, comment="문서 고유 ID (UUID)")
     documents_name = Column(String(255), nullable=False, comment="파일명")
     file_size = Column(Integer, comment="파일 크기 (bytes)")
-    s3_url = Column(String(500), nullable=False, comment="S3 URL")
+    s3_url = Column(String(500), nullable=False, comment="파일 경로(로컬 FS) 또는 URL")
     is_vectorized = Column(Integer, default=0, comment="벡터화 여부 (1: 완료, 0: 미완료)")
+    influencer_id = Column(
+        String(255),
+        ForeignKey("AI_INFLUENCER.influencer_id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="소유 인플루언서 ID",
+    )
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), comment="생성 시간"
     )
