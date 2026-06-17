@@ -307,6 +307,18 @@ export default function ChatPage() {
             }
             return newMessages;
           });
+        } else if (data.type === "sources") {
+          // RAG 출처 표시 (원시 JSON 노출 방지, 참고 문서명만 간단 안내)
+          const srcs = Array.isArray(data.data) ? data.data : [];
+          const names = [...new Set(srcs.map((s: any) => s?.source).filter(Boolean))];
+          if (names.length > 0) {
+            setMessages(prev => [...prev, {
+              id: Date.now().toString() + "-src",
+              content: `📄 참고 문서: ${names.join(", ")}`,
+              sender: "bot",
+              timestamp: new Date(),
+            }]);
+          }
         } else if (data.type === "error") {
           // 에러 처리
           setIsLoading(false);
