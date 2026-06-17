@@ -5,8 +5,6 @@ import os
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.influencer import AIInfluencer
-from app.models.user import HFTokenManage
-from app.core.encryption import decrypt_sensitive_data
 from app.core.security import get_current_user
 import re
 from fastapi import HTTPException
@@ -178,44 +176,20 @@ async def multi_chat(request: MultiChatRequest, db: Session = Depends(get_db), c
             tasks.append(asyncio.create_task(return_access_error()))
             continue
 
-        # hf_manage_id가 없으면 오류
-        if ai_influencer.hf_manage_id is None:
-            async def return_no_hf_token():
+        # 허깅페이스 토큰 조회 (중앙 리졸버 사용)
+        # 우선순위: 인플루언서 직접 할당(hf_manage_id) → 그룹 기본 토큰(is_default) → 그룹 최신 토큰
+        # chat.py / chatbot.py / 생성 파이프라인과 동일한 경로로, 그룹 기본 토큰 폴백을 지원한다.
+        from app.services.hf_token_resolver import get_token_for_influencer
+        decrypted_token, _hf_username = await get_token_for_influencer(ai_influencer, db)
+
+        if not decrypted_token:
+            async def return_no_hf_token(influencer_id=influencer_info.influencer_id):
                 return InfluencerResponse(
-                    influencer_id=influencer_info.influencer_id,
-                    response="허깅페이스 토큰이 설정되지 않았습니다."
+                    influencer_id=influencer_id,
+                    response="허깅페이스 토큰이 설정되지 않았습니다. 관리자 페이지에서 그룹에 토큰을 등록하거나 인플루언서에 토큰을 할당해주세요."
                 )
             tasks.append(asyncio.create_task(return_no_hf_token()))
             continue
-
-        # 허깅페이스 토큰 조회
-        hf_token = (
-            db.query(HFTokenManage)
-            .filter(HFTokenManage.hf_manage_id == ai_influencer.hf_manage_id)
-            .first()
-        )
-
-        if not hf_token:
-            async def return_hf_not_found():
-                return InfluencerResponse(
-                    influencer_id=influencer_info.influencer_id,
-                    response="허깅페이스 토큰을 찾을 수 없습니다."
-                )
-            tasks.append(asyncio.create_task(return_hf_not_found()))
-            continue
-
-        # 허깅페이스 토큰 복호화
-        encrypted_token_value = getattr(hf_token, "hf_token_value", None)
-        if not encrypted_token_value:
-            async def return_no_token_value():
-                return InfluencerResponse(
-                    influencer_id=influencer_info.influencer_id,
-                    response="토큰 값이 없습니다."
-                )
-            tasks.append(asyncio.create_task(return_no_token_value()))
-            continue
-        
-        decrypted_token = decrypt_sensitive_data(encrypted_token_value)
 
         # 비동기 태스크 생성
         task = asyncio.create_task(
