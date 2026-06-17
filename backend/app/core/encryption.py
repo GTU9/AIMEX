@@ -15,16 +15,36 @@ logger = logging.getLogger(__name__)
 
 
 class AESEncryption:
-    def __init__(self, password: Optional[str] = None):
+    def __init__(self, password: Optional[str] = None, salt: Optional[str] = None):
         """
         AES256 암호화 클래스 초기화
+
+        키/솔트는 반드시 환경변수(ENCRYPTION_KEY/ENCRYPTION_SALT) 또는 인자로
+        주입해야 한다. 하드코딩 기본값은 소스가 공개되면 암호화가 무력화되므로
+        제공하지 않으며, 미설정 시 즉시 예외를 던진다(fail-fast).
+
         Args:
-            password: 암호화에 사용할 패스워드 (환경변수에서 가져올 수도 있음)
+            password: 암호화 패스워드. 미지정 시 환경변수 ENCRYPTION_KEY 사용.
+            salt: 솔트. 미지정 시 환경변수 ENCRYPTION_SALT 사용.
         """
-        # 환경변수에서 암호화 키를 가져오거나 기본값 사용
-        self.password = password or os.getenv('ENCRYPTION_KEY', 'skn-team-default-encryption-key-2024')
-        self.salt = os.getenv('ENCRYPTION_SALT', 'skn-team-salt-2024').encode()
-        
+        resolved_password = password or os.getenv('ENCRYPTION_KEY')
+        if not resolved_password:
+            raise RuntimeError(
+                "ENCRYPTION_KEY 가 설정되지 않았습니다. 민감정보 암호화를 위해 "
+                "강한 랜덤 키를 환경변수(.env)에 설정하세요. "
+                "(예: python -c \"import secrets;print(secrets.token_urlsafe(48))\")"
+            )
+
+        resolved_salt = salt or os.getenv('ENCRYPTION_SALT')
+        if not resolved_salt:
+            raise RuntimeError(
+                "ENCRYPTION_SALT 가 설정되지 않았습니다. 환경변수(.env)에 "
+                "고유한 솔트 값을 설정하세요."
+            )
+
+        self.password = resolved_password
+        self.salt = resolved_salt.encode() if isinstance(resolved_salt, str) else resolved_salt
+
         # PBKDF2를 사용하여 키 생성
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
