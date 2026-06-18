@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     MODAL_FINETUNING_URL: Optional[str] = os.getenv("MODAL_FINETUNING_URL")
     # 이미지 생성: Modal SDXL-Turbo 엔드포인트(POST). 예: https://<your>--aimex-image-generate.modal.run
     MODAL_IMAGE_URL: Optional[str] = os.getenv("MODAL_IMAGE_URL")
+    # 이미지 수정(지시 기반 편집): Modal InstructPix2Pix 엔드포인트(POST)
+    MODAL_IMAGE_EDIT_URL: Optional[str] = os.getenv("MODAL_IMAGE_EDIT_URL")
     # 선택: Modal proxy auth 토큰 (헤더 Modal-Key/Modal-Secret 또는 Bearer)
     MODAL_AUTH_TOKEN: Optional[str] = os.getenv("MODAL_AUTH_TOKEN")
 

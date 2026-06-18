@@ -2599,31 +2599,31 @@ ${testData.message}
                                   throw new Error('이미지 파일을 찾을 수 없습니다')
                                 }
                                 
-                                // 기존 WebSocket 연결 사용
-                                if (wsConnected) {
-                                  // 이미지를 Base64로 변환
-                                  const reader = new FileReader()
-                                  reader.onload = () => {
-                                    const base64Data = reader.result?.toString().split(',')[1]
-                                    
-                                    // WebSocket으로 이미지 수정 요청 전송
-                                    wsSend({
-                                      type: 'modify_image',
-                                      data: {
-                                        image: base64Data,
-                                        edit_instruction: editPrompt
-                                      }
-                                    })
-                                    
-                                    toast({
-                                      title: "이미지 수정 중",
-                                      description: '이미지를 수정하고 있습니다. 잠시만 기다려주세요...',
-                                      duration: 5000,
-                                    })
+                                // Modal(InstructPix2Pix) REST 수정 (ComfyUI WebSocket 대체)
+                                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+                                const fd = new FormData()
+                                fd.append('image', imageFile)
+                                fd.append('edit_instruction', editPrompt)
+                                const resp: any = await apiClient.post(
+                                  '/api/v1/image-modification/modal-modify',
+                                  fd,
+                                  { headers: {}, timeout: 300000 }
+                                )
+                                if (resp?.success && resp?.storage_id) {
+                                  const newImage: GeneratedImage = {
+                                    id: resp.storage_id,
+                                    prompt: `[Modified] ${editPrompt}`,
+                                    width: resp.width || 512,
+                                    height: resp.height || 512,
+                                    image_url: `${backendUrl}/api/v1/images/${resp.storage_id}.png`,
+                                    created_at: new Date().toISOString(),
+                                    status: 'completed',
                                   }
-                                  reader.readAsDataURL(imageFile)
+                                  setImages(prev => [newImage, ...prev])
+                                  setPreviewImage(newImage)
+                                  setShowImageModal(true)
                                 } else {
-                                  throw new Error('WebSocket 연결이 없습니다. 페이지를 새로고침해주세요.')
+                                  throw new Error(resp?.message || '이미지 수정에 실패했습니다.')
                                 }
                               } catch (error) {
                                 // console.error('이미지 수정 실패:', error)

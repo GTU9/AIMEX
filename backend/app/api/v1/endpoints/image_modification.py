@@ -350,6 +350,94 @@ image_modification_service = ImageModificationService()
 # WebSocket 매니저 인스턴스
 manager = WebSocketManager()
 
+@router.post("/modal-modify")
+async def modal_modify_image(
+    image: UploadFile = File(..., description="수정할 이미지 파일"),
+    edit_instruction: str = Form(..., description="수정 지시(예: Make her hair blue)"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: Dict = Depends(get_current_user),
+):
+    """Modal(InstructPix2Pix) 기반 지시형 이미지 수정 (ComfyUI 대체 경로, 기존 엔드포인트 유지)."""
+    import os
+    import uuid
+    import base64
+    from app.core.config import settings
+
+    user_id = current_user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="사용자 ID를 찾을 수 없습니다.")
+    if settings.GPU_PROVIDER != "modal":
+        raise HTTPException(status_code=400, detail="이 엔드포인트는 GPU_PROVIDER=modal 일 때만 사용할 수 있습니다.")
+
+    image_data = await image.read()
+    # 유효성 검증
+    try:
+        Image.open(io.BytesIO(image_data)).verify()
+    except Exception:
+        raise HTTPException(status_code=400, detail="유효하지 않은 이미지 파일입니다.")
+
+    # 팀 정보
+    try:
+        user = await _get_user_with_groups(user_id, db)
+        team_id = user.teams[0].group_id if user and getattr(user, "teams", None) else 0
+    except Exception:
+        team_id = 0
+
+    # Modal 호출
+    from app.services.modal_manager import get_modal_image_edit_manager
+
+    manager = get_modal_image_edit_manager()
+    result = await manager.runsync({
+        "image_base64": base64.b64encode(image_data).decode(),
+        "instruction": edit_instruction,
+    })
+    if result.get("status") == "failed" or result.get("error"):
+        raise HTTPException(status_code=500, detail=f"이미지 수정 실패: {result.get('error')}")
+    output = result.get("output", {})
+    out_b64 = output.get("image_base64")
+    if not out_b64:
+        raise HTTPException(status_code=500, detail="Modal 응답에 이미지가 없습니다.")
+    out_data = base64.b64decode(out_b64)
+
+    # 로컬 저장
+    base_dir = os.path.join(os.path.dirname(settings.LOCAL_STORAGE_PATH.rstrip("/")) or ".", "images")
+    os.makedirs(base_dir, exist_ok=True)
+    storage_id = str(uuid.uuid4())
+    save_path = os.path.join(base_dir, f"{storage_id}.png")
+    with open(save_path, "wb") as f:
+        f.write(out_data)
+
+    # DB 행
+    from app.models.generated_image import GeneratedImage
+
+    row = GeneratedImage(
+        storage_id=storage_id,
+        team_id=team_id,
+        user_id=user_id,
+        prompt=f"[edit] {edit_instruction}",
+        width=output.get("width"),
+        height=output.get("height"),
+        workflow_name="instruct-pix2pix",
+        model_name="timbrooks/instruct-pix2pix",
+        extra_metadata={"provider": "modal", "type": "edit"},
+        s3_url=save_path,
+        file_size=len(out_data),
+        mime_type="image/png",
+    )
+    db.add(row)
+    await db.commit()
+    logger.info(f"✅ 이미지 수정 저장: {save_path} ({len(out_data)} bytes)")
+    return {
+        "success": True,
+        "storage_id": storage_id,
+        "file_path": save_path,
+        "width": output.get("width"),
+        "height": output.get("height"),
+        "edit_instruction": edit_instruction,
+        "message": "이미지가 수정되었습니다.",
+    }
+
+
 @router.post("/modify-simple")
 async def modify_image_simple(
     image: UploadFile = File(..., description="수정할 이미지 파일"),
