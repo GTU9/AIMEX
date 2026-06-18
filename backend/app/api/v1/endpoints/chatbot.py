@@ -37,91 +37,66 @@ async def _process_tts_async(websocket: WebSocket, text: str, influencer_id: str
     from app.database import get_db
     import asyncio
     
+    import base64 as _b64
+    import os as _os
+
     try:
-        # DB에서 influencer의 voice_base 정보 가져오기
+        # DB에서 influencer 의 베이스 음성(로컬 파일) 읽기 → base64 (클로닝 참조)
         db: Session = next(get_db())
+        voice_b64 = None
         try:
             influencer = db.query(AIInfluencer).filter(
                 AIInfluencer.influencer_id == influencer_id
             ).first()
-            
-            base_voice_id = None
-            presigned_url = None
-            
-            if influencer and influencer.voice_base:
-                base_voice_id = str(influencer.voice_base.id)
-                logger.info(f"[WS] 인플루언서 {influencer_id}의 base_voice_id 찾음: {base_voice_id}")
-                logger.info(f"[WS] Base voice 정보 - ID: {base_voice_id}, URL: {influencer.voice_base.s3_url}")
-                
-                # S3 presigned URL 생성
-                s3_service = S3Service()
-                if influencer.voice_base.s3_url:
-                    # S3 URL에서 키 추출 (s3://bucket-name/key 형식)
-                    s3_key = influencer.voice_base.s3_url.replace(f"s3://{s3_service.bucket_name}/", "")
-                    presigned_url = s3_service.generate_presigned_url(s3_key)
-                    logger.info(f"[WS] Base voice presigned URL 생성됨")
+            if influencer and influencer.voice_base and influencer.voice_base.s3_url:
+                vpath = influencer.voice_base.s3_url  # 로컬 경로
+                try:
+                    if _os.path.exists(vpath):
+                        with open(vpath, "rb") as vf:
+                            voice_b64 = _b64.b64encode(vf.read()).decode()
+                        logger.info(f"[WS] 베이스 음성 로드(클로닝): {vpath}")
+                    else:
+                        logger.warning(f"[WS] 베이스 음성 파일 없음: {vpath}")
+                except Exception as ve:
+                    logger.warning(f"[WS] 베이스 음성 읽기 실패: {ve}")
             else:
-                logger.warning(f"[WS] 인플루언서 {influencer_id}의 base_voice를 찾을 수 없음")
+                logger.info(f"[WS] 베이스 음성 미설정 → 기본 음색으로 합성")
         finally:
             db.close()
-        
-        # TTS 매니저 가져오기
+
         tts_manager = get_tts_manager()
-        
-        # TTS 생성 요청 (동기) - 새로운 메서드 사용
         logger.info(f"[WS] TTS 생성 요청: {text[:50]}...")
         job_input = {
             "text": text,
             "influencer_id": influencer_id,
-            "base_voice_id": base_voice_id,  # voice_id로 influencer_id 사용
-            "output_format": "wav",  # 기본값 wav
-            "emotion_name": "neutral"  # 기본 감정 설정
+            "voice_data_base64": voice_b64,  # 있으면 클로닝, 없으면 기본 음색
         }
-        
-        # base_voice_id와 presigned_url이 있으면 추가
-        if base_voice_id and presigned_url:
-            job_input["base_voice_id"] = base_voice_id
-            job_input["voice_data_base64"] = None  # presigned_url은 worker에서 처리
-            logger.info(f"[WS] Voice cloning 모드로 TTS 생성 - base_voice_id: {base_voice_id}")
-        
-        # runsync 메서드 사용 (동기 요청)
-        tts_result = await tts_manager.runsync(job_input)
-        
-        # task_id 확인
-        if not tts_result or not tts_result.get("id"):
-            logger.error("[WS] TTS task_id를 받지 못함")
-            return
-            
-        task_id = tts_result.get("id")
-        logger.info(f"[WS] TTS 작업 생성됨: task_id={task_id}")
-        
-        if tts_result.get("status") == "COMPLETED":
-            output = tts_result.get("output", {})
-            logger.info(f"[WS] TTS output 구조: {list(output.keys()) if output else 'None'}")
-            
-            # audio_base64, audio_data, 또는 다른 필드 확인
-            audio_base64 = output.get("audio_base64") or output.get("audio_data") or output.get("audio")
-            
-            if audio_base64:
-                # WebSocket 연결 상태 확인
-                try:
-                    # WebSocket으로 base64 오디오 데이터 전송
-                    await websocket.send_text(
-                        json.dumps({
-                            "type": "audio",
-                            "audio_base64": audio_base64,
-                            "duration": output.get("duration"),
-                            "format": output.get("format", "wav"),
-                            "message": "음성이 생성되었습니다."
-                        })
-                    )
-                    logger.info(f"[WS] TTS base64 오디오 전송 완료 (크기: {len(audio_base64)} bytes)")
-                except Exception as send_error:
-                    logger.error(f"[WS] TTS 오디오 전송 실패 (WebSocket 연결 끊김?): {send_error}")
-            else:
-                logger.warning(f"[WS] TTS output에서 오디오 데이터를 찾을 수 없음. 가능한 키: {list(output.keys())}")
 
-            
+        tts_result = await tts_manager.runsync(job_input)
+
+        # CosyVoice/Modal 응답 계약: {"output": {audio_base64, sample_rate, duration}}
+        output = (tts_result or {}).get("output", {}) or {}
+        audio_base64 = output.get("audio_base64") or output.get("audio_data") or output.get("audio")
+
+        if not audio_base64:
+            err = (tts_result or {}).get("error")
+            logger.warning(f"[WS] TTS 오디오 없음 (error={err}, keys={list(output.keys())})")
+            return
+
+        try:
+            await websocket.send_text(
+                json.dumps({
+                    "type": "audio",
+                    "audio_base64": audio_base64,
+                    "duration": output.get("duration"),
+                    "format": output.get("format", "wav"),
+                    "message": "음성이 생성되었습니다.",
+                })
+            )
+            logger.info(f"[WS] TTS base64 오디오 전송 완료 (크기: {len(audio_base64)})")
+        except Exception as send_error:
+            logger.error(f"[WS] TTS 오디오 전송 실패(연결 끊김?): {send_error}")
+
     except Exception as e:
         logger.error(f"[WS] TTS 처리 중 오류: {e}")
         # TTS 오류는 무시하고 채팅은 계속 진행

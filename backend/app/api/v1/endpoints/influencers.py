@@ -2100,23 +2100,23 @@ async def upload_base_voice(
     if file_size > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="파일 크기는 10MB 이하여야 합니다")
 
-    # S3 키 생성 (audio_base/influencer_id/base.wav)
-    s3_key = f"audio_base/{influencer_id}/base.wav"
+    # 로컬 파일시스템에 저장 (S3 제거 → NAS 로컬 전환)
+    from app.core.config import settings
 
-    # 임시 파일로 저장
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-        tmp_file.write(contents)
-        tmp_file_path = tmp_file.name
+    base_dir = os.path.join(
+        os.path.dirname(settings.LOCAL_STORAGE_PATH.rstrip("/")) or ".",
+        "voices",
+        str(influencer.influencer_id),
+    )
+    os.makedirs(base_dir, exist_ok=True)
+    save_path = os.path.join(base_dir, "base.wav")
 
     try:
-        # S3에 업로드 (WAV 파일로)
-        s3_url = s3_service.upload_file(tmp_file_path, s3_key, content_type="audio/wav")
-        if not s3_url:
-            raise HTTPException(status_code=500, detail="S3 업로드 실패")
+        with open(save_path, "wb") as f:
+            f.write(contents)
+        # 컬럼명은 s3_url/s3_key 이나 값은 로컬 경로(베이스음성 로컬 전환)
+        voice_path = save_path
 
-        # 기존 베이스 음성이 있는지 확인
         existing_voice = (
             db.query(VoiceBase)
             .filter(VoiceBase.influencer_id == influencer.influencer_id)
@@ -2124,30 +2124,28 @@ async def upload_base_voice(
         )
 
         if existing_voice:
-            # 기존 음성 업데이트
             existing_voice.file_name = wav_filename
             existing_voice.file_size = file_size
             existing_voice.file_type = "audio/wav"
-            existing_voice.s3_url = s3_url
-            existing_voice.s3_key = s3_key
+            existing_voice.s3_url = voice_path
+            existing_voice.s3_key = voice_path
             existing_voice.updated_at = datetime.utcnow()
         else:
-            # 새로운 베이스 음성 생성
             new_voice = VoiceBase(
                 influencer_id=influencer.influencer_id,
                 file_name=wav_filename,
                 file_size=file_size,
                 file_type="audio/wav",
-                s3_url=s3_url,
-                s3_key=s3_key,
+                s3_url=voice_path,
+                s3_key=voice_path,
             )
             db.add(new_voice)
 
         db.commit()
 
         return {
-            "message": "베이스 음성이 성공적으로 업로드되었습니다 (WAV로 변환됨)",
-            "s3_url": s3_url,
+            "message": "베이스 음성이 로컬에 저장되었습니다 (WAV로 변환됨)",
+            "s3_url": voice_path,
             "file_name": wav_filename,
             "file_size": file_size,
             "original_filename": request.file_name,
@@ -2156,10 +2154,6 @@ async def upload_base_voice(
     except Exception as e:
         logger.error(f"베이스 음성 업로드 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # 임시 파일 삭제
-        if os.path.exists(tmp_file_path):
-            os.unlink(tmp_file_path)
 
 
 @router.get("/{influencer_id}/voice/base")
