@@ -133,3 +133,7 @@ README.md
 
 # Milvus 로컬 데이터 볼륨
 deploy/milvus/volumes/
+
+# 런타임 업로드/생성물 (문서·음성·이미지)
+backend/uploads/
+uploads/
