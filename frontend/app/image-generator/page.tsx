@@ -806,36 +806,52 @@ ${testData.message}
     setGenerationProgress({
       status: 'starting',
       progress: 0,
-      message: '이미지 생성 준비 중...'
+      message: '이미지 생성 중... (Modal GPU, 최대 2~3분 소요)'
     })
 
-    // 선택값을 명시적으로 전달
     const selectedSizeData = PRESET_SIZES.find(size => size.id === selectedSize)
-
-    // 프론트엔드 로그: 요청 파라미터
-    // console.log('[이미지 생성 요청] 파라미터:', {
-    //   prompt,
-    //   selected_styles: getSelectedStylesForAPI(),
-    //   width: selectedSizeData?.width || 1024,
-    //   height: selectedSizeData?.height || 1024,
-    // })
+    // 프롬프트 + 선택 스타일 키워드 병합 (SDXL-Turbo는 단일 prompt 입력)
+    const fullPrompt = [prompt.trim() || '', getCombinedPromptKeywords() || '']
+      .filter(Boolean)
+      .join(', ')
 
     try {
-      // WebSocket으로 이미지 생성 요청
-      wsSend({
-        type: 'generate_image',
-        data: {
-          prompt: prompt.trim() || getCombinedPromptKeywords(),
-          selected_styles: getSelectedStylesForAPI(),
-          width: selectedSizeData?.width || 1024,
-          height: selectedSizeData?.height || 1024,
-          steps: 8,
-          guidance: 3.5,
-          seed: null
+      // Modal(SDXL-Turbo) REST 엔드포인트로 생성 요청 (ComfyUI WebSocket 대체)
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+      const resp: any = await apiClient.post('/api/v1/image-generation/modal-generate', {
+        prompt: fullPrompt,
+        width: selectedSizeData?.width || 512,
+        height: selectedSizeData?.height || 512,
+        num_inference_steps: 2,
+        guidance_scale: 0.0,
+      }, { timeout: 300000 })
+
+      setIsGenerating(false)
+      setGenerationProgress(null)
+
+      if (resp?.success && resp?.storage_id) {
+        const newImage: GeneratedImage = {
+          id: resp.storage_id,
+          prompt: fullPrompt,
+          width: resp.width || selectedSizeData?.width || 512,
+          height: resp.height || selectedSizeData?.height || 512,
+          image_url: `${backendUrl}/api/v1/images/${resp.storage_id}.png`,
+          created_at: new Date().toISOString(),
+          status: 'completed',
         }
-      })
+        setImages(prev => [newImage, ...prev])
+        setPreviewImage(newImage)
+        setShowImageModal(true)
+        setPrompt("")
+      } else {
+        toast({
+          title: "이미지 생성 실패",
+          description: resp?.message || '이미지 생성에 실패했습니다.',
+          variant: "destructive",
+          duration: 3000,
+        })
+      }
     } catch (error) {
-      // console.error('Failed to send image generation request:', error)
       setIsGenerating(false)
       setGenerationProgress(null)
       toast({
@@ -1464,7 +1480,7 @@ ${testData.message}
   // 인종 스타일 선택 상태
   const [selectedEthnicityStyle, setSelectedEthnicityStyle] = useState<string>("기본")
   // 풍경 선택 상태
-  const [selectedLandscape, setSelectedLandscape] = useState<string | null>(null)
+  const [selectedLandscape, setSelectedLandscape] = useState<string | null>("")  // ""=프롬프트 항상 표시(Modal은 세션 불필요)
 
   // 스타일 선택 관련 핸들러
   const handleMainCategorySelect = (mainId: string | null) => {
@@ -2164,7 +2180,7 @@ ${testData.message}
                                 <div className="mt-auto pt-4">
                                   <Button 
                                     onClick={handleGenerateImage}
-                                    disabled={!prompt.trim() || !selectedSize || isGenerating || (clientSessionTime !== null && clientSessionTime <= 0)}
+                                    disabled={!prompt.trim() || !selectedSize || isGenerating}
                                     className="w-full text-white bg-blue-600 hover:bg-blue-700"
                                     size="lg"
                                   >
