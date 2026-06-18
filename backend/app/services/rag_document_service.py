@@ -19,7 +19,7 @@ class RAGDocumentService:
         self,
         documents_name: str,
         file_size: int,
-        s3_url: str,
+        file_path: str,
         db: Session
     ) -> Optional[str]:
         """문서 정보 저장"""
@@ -29,7 +29,7 @@ class RAGDocumentService:
                 documents_id=documents_id,
                 documents_name=documents_name,
                 file_size=file_size,
-                s3_url=s3_url,
+                file_path=file_path,
                 is_vectorized=0  # 0: 미완료
             )
             db.add(document)
@@ -109,7 +109,7 @@ class RAGDocumentService:
                     "documents_id": doc.documents_id,
                     "documents_name": doc.documents_name,
                     "file_size": doc.file_size,
-                    "s3_url": doc.s3_url,
+                    "file_path": doc.file_path,
                     "is_vectorized": doc.is_vectorized,
                     "created_at": doc.created_at.isoformat() if doc.created_at else None
                 }
@@ -141,7 +141,7 @@ class RAGDocumentService:
                     "documents_id": doc.documents_id,
                     "documents_name": doc.documents_name,
                     "file_size": doc.file_size,
-                    "s3_url": doc.s3_url,
+                    "file_path": doc.file_path,
                     "is_vectorized": doc.is_vectorized,
                     "created_at": doc.created_at.isoformat() if doc.created_at else None
                 }
@@ -166,7 +166,7 @@ class RAGDocumentService:
                     "documents_id": document.documents_id,
                     "documents_name": document.documents_name,
                     "file_size": document.file_size,
-                    "s3_url": document.s3_url,
+                    "file_path": document.file_path,
                     "is_vectorized": document.is_vectorized,
                     "created_at": document.created_at.isoformat() if document.created_at else None
                 }

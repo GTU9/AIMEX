@@ -15,7 +15,7 @@ class Documents(Base):
     documents_id = Column(String(36), primary_key=True, comment="문서 고유 ID (UUID)")
     documents_name = Column(String(255), nullable=False, comment="파일명")
     file_size = Column(Integer, comment="파일 크기 (bytes)")
-    s3_url = Column(String(500), nullable=False, comment="파일 경로(로컬 FS) 또는 URL")
+    file_path = Column(String(500), nullable=False, comment="원본 파일 경로(로컬 파일시스템)")
     is_vectorized = Column(Integer, default=0, comment="벡터화 여부 (1: 완료, 0: 미완료)")
     influencer_id = Column(
         String(255),

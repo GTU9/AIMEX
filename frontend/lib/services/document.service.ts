@@ -4,7 +4,7 @@ export interface InfluencerDocument {
   documents_id: string;
   documents_name: string;
   file_size?: number;
-  s3_url: string;
+  file_path: string;
   is_vectorized: number;
   created_at?: string;
 }
@@ -18,7 +18,7 @@ export interface DocumentUploadResponse {
   success: boolean;
   message: string;
   documents_id?: string;
-  s3_url?: string;
+  file_path?: string;
   file_size?: number;
 }
 

@@ -30,7 +30,7 @@ class DocumentResponse(BaseModel):
     documents_id: str
     documents_name: str
     file_size: Optional[int]
-    s3_url: str
+    file_path: str
     is_vectorized: int
     created_at: Optional[str]
 
@@ -48,7 +48,7 @@ class DocumentUploadResponse(BaseModel):
     success: bool
     message: str
     documents_id: Optional[str] = None
-    s3_url: Optional[str] = None
+    file_path: Optional[str] = None
     file_size: Optional[int] = None
 
 
@@ -117,7 +117,7 @@ async def upload_document(
             documents_id=documents_id,
             documents_name=file.filename,
             file_size=len(content),
-            s3_url=save_path,
+            file_path=save_path,
             is_vectorized=0,
             influencer_id=influencer_id,
         )
@@ -128,7 +128,7 @@ async def upload_document(
             success=True,
             message="문서가 로컬에 저장되었습니다.",
             documents_id=documents_id,
-            s3_url=save_path,
+            file_path=save_path,
             file_size=len(content),
         )
 
@@ -154,7 +154,7 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="문서에 influencer_id 가 없습니다.")
 
     proc = RAGDocumentProcessor(RAGConfig())
-    path = doc.s3_url
+    path = doc.file_path
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="원본 파일이 존재하지 않습니다.")
 
@@ -200,7 +200,7 @@ async def list_documents_by_influencer(
             documents_id=r.documents_id,
             documents_name=r.documents_name,
             file_size=r.file_size,
-            s3_url=r.s3_url,
+            file_path=r.file_path,
             is_vectorized=r.is_vectorized or 0,
             created_at=r.created_at.isoformat() if r.created_at else None,
         )
@@ -316,8 +316,8 @@ async def download_document(documents_id: str, db: Session = Depends(get_db)):
 
             if s3_service.is_available():
                 # S3 키 추출 (URL에서 키 부분만)
-                s3_url = document["s3_url"]
-                s3_key = s3_url.split(".com/")[-1] if ".com/" in s3_url else s3_url
+                file_path = document["file_path"]
+                s3_key = file_path.split(".com/")[-1] if ".com/" in file_path else file_path
 
                 # Presigned URL 생성 (24시간 유효)
                 presigned_url = s3_service.generate_presigned_url(
