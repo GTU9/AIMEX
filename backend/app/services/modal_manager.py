@@ -271,6 +271,49 @@ class ModalTTSManager(BaseModalManager):
             raise ModalManagerError(f"Modal TTS runsync 실패: {e}")
 
 
+class ModalImageManager(BaseModalManager):
+    """이미지 생성(SDXL-Turbo) Modal 매니저
+
+    텍스트→이미지 생성. 입력이 {"input": {...}} 형태가 아니면 감싼다.
+    반환은 Modal 응답 그대로({"output": {"image_base64", "width", "height", "seed"}}).
+    """
+
+    def __init__(self):
+        super().__init__(settings.MODAL_IMAGE_URL, "Image")
+
+    async def runsync(self, job_input: Dict[str, Any]) -> Dict[str, Any]:
+        """동기 이미지 생성 (결과 대기)"""
+        url = self._require_url()
+
+        # {"input": {...}} 형태로 표준화
+        if "input" in job_input:
+            payload = job_input
+        else:
+            payload = {"input": job_input}
+
+        logger.info(f"⏳ Modal Image runsync 요청: {url}")
+
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                response = await client.post(url, headers=self.headers, json=payload)
+
+                if response.status_code != 200:
+                    error_msg = f"Modal Image API 오류: {response.status_code} - {response.text}"
+                    logger.error(f"❌ {error_msg}")
+                    raise ModalManagerError(error_msg)
+
+                return response.json()
+
+        except httpx.TimeoutException as e:
+            logger.error(f"❌ Modal Image 요청 타임아웃: {e}")
+            raise ModalManagerError("Modal Image 요청 타임아웃 (300초 초과)")
+        except ModalManagerError:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Modal Image runsync 실패: {e}")
+            raise ModalManagerError(f"Modal Image runsync 실패: {e}")
+
+
 class ModalFinetuningManager(BaseModalManager):
     """Fine-tuning 서비스용 Modal 매니저 (FinetuningRunPodManager 호환)"""
 
@@ -326,6 +369,7 @@ class ModalFinetuningManager(BaseModalManager):
 _modal_vllm_manager: Optional[ModalVLLMManager] = None
 _modal_tts_manager: Optional[ModalTTSManager] = None
 _modal_finetuning_manager: Optional[ModalFinetuningManager] = None
+_modal_image_manager: Optional["ModalImageManager"] = None
 
 
 def get_modal_vllm_manager() -> ModalVLLMManager:
@@ -350,3 +394,11 @@ def get_modal_finetuning_manager() -> ModalFinetuningManager:
     if _modal_finetuning_manager is None:
         _modal_finetuning_manager = ModalFinetuningManager()
     return _modal_finetuning_manager
+
+
+def get_modal_image_manager() -> "ModalImageManager":
+    """Modal 이미지 생성 매니저 싱글톤 인스턴스 반환"""
+    global _modal_image_manager
+    if _modal_image_manager is None:
+        _modal_image_manager = ModalImageManager()
+    return _modal_image_manager

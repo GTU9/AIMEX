@@ -64,6 +64,144 @@ class ImageListResponse(BaseModel):
     message: str
 
 
+class ModalImageGenerationRequest(BaseModel):
+    """Modal SDXL-Turbo 텍스트→이미지 생성 요청 (ComfyUI 비의존 경로)"""
+    prompt: str
+    negative_prompt: Optional[str] = None
+    width: int = 512
+    height: int = 512
+    seed: Optional[int] = None
+    num_inference_steps: int = 2
+    guidance_scale: float = 0.0
+
+
+class ModalImageGenerationResponse(BaseModel):
+    """Modal 이미지 생성 응답"""
+    success: bool
+    image_id: Optional[int] = None
+    storage_id: Optional[str] = None
+    file_path: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    seed: Optional[int] = None
+    file_size: Optional[int] = None
+    generation_time: Optional[float] = None
+    message: str
+
+
+@router.post("/modal-generate", response_model=ModalImageGenerationResponse)
+async def modal_generate_image(
+    request: ModalImageGenerationRequest,
+    current_user: Dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Modal(SDXL-Turbo) 기반 텍스트→이미지 생성 (ComfyUI 대체 경로).
+
+    GPU_PROVIDER=modal 일 때 Modal 엔드포인트로 생성하고, PNG를
+    backend/uploads/images/{uuid}.png 에 저장한 뒤 generated_images 행을 만든다.
+    """
+    import os
+    import uuid
+    import base64
+    from app.core.config import settings
+
+    start_time = time.time()
+    try:
+        user_id = current_user.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="사용자 ID를 찾을 수 없습니다.")
+
+        if settings.GPU_PROVIDER != "modal":
+            raise HTTPException(
+                status_code=400,
+                detail="이 엔드포인트는 GPU_PROVIDER=modal 일 때만 사용할 수 있습니다.",
+            )
+
+        # 팀 정보(team_id) 조회 - 없으면 0으로 폴백
+        user = await _get_user_with_groups(user_id, db)
+        team_id = user.teams[0].group_id if user and user.teams else 0
+
+        # 1. Modal 호출
+        from app.services.modal_manager import get_modal_image_manager
+        manager = get_modal_image_manager()
+        result = await manager.runsync({
+            "prompt": request.prompt,
+            "negative_prompt": request.negative_prompt,
+            "width": request.width,
+            "height": request.height,
+            "seed": request.seed,
+            "num_inference_steps": request.num_inference_steps,
+            "guidance_scale": request.guidance_scale,
+        })
+
+        if result.get("status") == "failed" or result.get("error"):
+            raise HTTPException(status_code=500, detail=f"이미지 생성 실패: {result.get('error')}")
+
+        output = result.get("output", {})
+        image_b64 = output.get("image_base64")
+        if not image_b64:
+            raise HTTPException(status_code=500, detail="Modal 응답에 이미지가 없습니다.")
+
+        image_data = base64.b64decode(image_b64)
+
+        # 2. 로컬 저장 (backend/uploads/images/{uuid}.png)
+        base_dir = os.path.join(
+            os.path.dirname(settings.LOCAL_STORAGE_PATH.rstrip("/")) or ".", "images"
+        )
+        os.makedirs(base_dir, exist_ok=True)
+        storage_id = str(uuid.uuid4())
+        save_path = os.path.join(base_dir, f"{storage_id}.png")
+        with open(save_path, "wb") as f:
+            f.write(image_data)
+        logger.info(f"✅ 이미지 로컬 저장: {save_path} ({len(image_data)} bytes)")
+
+        # 3. DB 행 생성 (로컬 경로를 s3_url 에 저장)
+        from app.models.generated_image import GeneratedImage
+        row = GeneratedImage(
+            storage_id=storage_id,
+            team_id=team_id,
+            user_id=user_id,
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            width=output.get("width", request.width),
+            height=output.get("height", request.height),
+            seed=output.get("seed", request.seed),
+            workflow_name="sdxl-turbo",
+            model_name="stabilityai/sdxl-turbo",
+            extra_metadata={
+                "provider": "modal",
+                "num_inference_steps": request.num_inference_steps,
+                "guidance_scale": request.guidance_scale,
+            },
+            s3_url=save_path,
+            file_size=len(image_data),
+            mime_type="image/png",
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+
+        generation_time = time.time() - start_time
+        return ModalImageGenerationResponse(
+            success=True,
+            image_id=row.id,
+            storage_id=storage_id,
+            file_path=save_path,
+            width=output.get("width", request.width),
+            height=output.get("height", request.height),
+            seed=output.get("seed", request.seed),
+            file_size=len(image_data),
+            generation_time=generation_time,
+            message=f"이미지가 성공적으로 생성되었습니다. (소요시간: {generation_time:.1f}초)",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Modal 이미지 생성 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"이미지 생성 중 오류 발생: {str(e)}")
+
+
 @router.post("/generate", response_model=ImageGenerationResponse)
 async def generate_image(
     request: ImageGenerationRequest,
