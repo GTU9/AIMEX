@@ -1891,70 +1891,47 @@ async def chat_with_influencer(
                     else f"당신은 {api_key.influencer_name}입니다. 친근하고 도움이 되는 답변을 해주세요."
                 )
 
-                # RunPod 서버에서 응답 생성
                 if api_key.influencer_model_repo:
                     model_id = str(api_key.influencer_model_repo)
 
-                    # HF 토큰 가져오기
-                    from app.models.user import HFTokenManage
-                    from app.core.encryption import decrypt_sensitive_data
+                    # HF 토큰 (중앙 리졸버 — model_test/chatbot/생성 파이프라인과 동일 경로)
+                    from app.services.hf_token_resolver import get_token_for_influencer
+                    hf_token, _hf_username = await get_token_for_influencer(api_key, db)
 
-                    hf_token = None
-                    if hasattr(api_key, "group_id") and api_key.group_id:
-                        hf_token_manage = (
-                            db.query(HFTokenManage)
-                            .filter(HFTokenManage.group_id == api_key.group_id)
-                            .order_by(HFTokenManage.created_at.desc())
-                            .first()
-                        )
-
-                        if hf_token_manage:
-                            hf_token = decrypt_sensitive_data(
-                                str(hf_token_manage.hf_token_value)
-                            )
-
-                    # 메시지 구성
-                    messages = []
-                    if system_message:
-                        messages.append({"role": "system", "content": system_message})
-                    messages.append({"role": "user", "content": request.message})
-                    
-                    # RunPod vLLM worker에 맞는 페이로드 구성
+                    # Modal/RunPod 생성 워커 페이로드 (prompt + system_message)
                     payload = {
                         "input": {
-                            "messages": messages,
+                            "prompt": request.message,
                             "max_tokens": 2048,
                             "temperature": 0.8,
                             "stream": False,
                             "lora_adapter": str(api_key.influencer_id),
                             "hf_repo": model_id,
-                            "hf_token": hf_token
+                            "hf_token": hf_token,
+                            "system_message": system_message,
                         }
                     }
-                    
-                    # vLLM 매니저로 응답 생성
-                    result = await vllm_manager.runsync(payload)
 
-                    # 응답 텍스트 추출 (간소화된 형식)
-                    if result.get("status") == "completed":
-                        # 새로운 형식: generated_text가 직접 반환됨
-                        response_text = result.get("generated_text", "")
-                        if not response_text:
-                            # 이전 형식 호환성을 위한 처리
-                            output = result.get("output", {})
-                            if isinstance(output, dict) and output.get("generated_text"):
-                                response_text = output.get("generated_text", "")
-                            else:
-                                response_text = f"안녕하세요! 저는 {api_key.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
+                    # runsync 는 생성 텍스트(문자열)를 반환 (Modal). RunPod dict 형식도 호환 처리.
+                    result = await vllm_manager.runsync(payload)
+                    if isinstance(result, str):
+                        response_text = result.strip()
+                    elif isinstance(result, dict):
+                        response_text = (
+                            result.get("generated_text")
+                            or result.get("output", {}).get("generated_text", "")
+                            or ""
+                        ).strip()
                     else:
+                        response_text = ""
+
+                    if not response_text:
                         response_text = f"안녕하세요! 저는 {api_key.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
 
-                    logger.info(f"✅ vLLM 매니저에서 모델 사용 준비: {model_id}")
+                    logger.info(f"✅ 인플루언서 API 응답 생성 완료: {api_key.influencer_name} ({model_id})")
                 else:
-                    # 기본 응답
+                    # 모델 repo 미설정 시 기본 응답
                     response_text = f"안녕하세요! 저는 {api_key.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
-
-                logger.info(f"✅ VLLM 응답 생성 성공: {api_key.influencer_name}")
 
         except Exception as e:
             logger.error(f"❌ VLLM 응답 생성 실패: {e}")
