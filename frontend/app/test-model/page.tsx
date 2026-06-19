@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MessageSquare, Send, Bot, User, RotateCcw } from "lucide-react"
 import type { AIModel } from "@/lib/types"
-import { ModelService, type AIInfluencer, type MultiChatRequest, type MultiChatResponse } from "@/lib/services/model.service"
+import { ModelService, type AIInfluencer } from "@/lib/services/model.service"
 
 interface ChatMessage {
   id: string
@@ -32,6 +32,8 @@ export default function TestModelPage() {
   const [modelsLoading, setModelsLoading] = useState(true)
   const [maxModelWarning, setMaxModelWarning] = useState(false)
   const isFetchingRef = useRef(false)
+  // 인플루언서별 공개 API 키 캐시 (테스트는 외부 공개 API 경유로 동작)
+  const apiKeyCache = useRef<Record<string, string>>({})
 
   const handleModelToggle = (modelId: string) => {
     setSelectedModels((prev) => {
@@ -54,10 +56,11 @@ export default function TestModelPage() {
   const handleSendMessage = async () => {
     if (!message.trim() || selectedModels.length === 0) return
 
+    const currentMessage = message
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       type: "user",
-      content: message,
+      content: currentMessage,
       timestamp: new Date().toLocaleTimeString(),
     }
 
@@ -66,29 +69,44 @@ export default function TestModelPage() {
     setIsLoading(true)
 
     try {
-      const request: MultiChatRequest = {
-        influencers: selectedModels.map((modelId) => {
-          const model = availableModels.find((m) => m.influencer_id === modelId)
-          return {
-            influencer_id: modelId,
-            influencer_model_repo: model?.influencer_model_repo || "",
+      // 외부 공개 챗봇 API(/api/v1/chat/chatbot, Authorization: Bearer <api_key>) 경유로 호출한다.
+      // 선택한 인플루언서별로 발급된 API 키를 사용 — 외부 연동과 동일한 경로를 그대로 검증한다.
+      const results = await Promise.all(
+        selectedModels.map(async (modelId) => {
+          const modelName =
+            availableModels.find((m) => m.influencer_id === modelId)?.influencer_name || "Unknown Model"
+          try {
+            let apiKey = apiKeyCache.current[modelId]
+            if (!apiKey) {
+              try {
+                const info = await ModelService.getApiKey(modelId)
+                apiKey = info.api_key
+              } catch {
+                // 키가 아직 없으면 발급 후 사용
+                const gen = await ModelService.generateApiKey(modelId)
+                apiKey = gen.api_key
+              }
+              apiKeyCache.current[modelId] = apiKey
+            }
+            const res = await ModelService.callChatbot(apiKey, { message: currentMessage })
+            return { modelId, modelName, content: res.response }
+          } catch (e) {
+            return {
+              modelId,
+              modelName,
+              content: "이 인플루언서의 API 호출에 실패했습니다. API 키와 모델 상태를 확인해주세요.",
+            }
           }
-        }),
-        message,
-      }
+        })
+      )
 
-      // 디버깅을 위한 로그 추가
-
-      const data = await ModelService.multiChat(request)
-
-      // 응답 로그 추가
-      const aiMessages: ChatMessage[] = data.results.map((result, index) => ({
+      const aiMessages: ChatMessage[] = results.map((result, index) => ({
         id: (Date.now() + index + 1).toString(),
         type: "ai" as const,
-        content: result.response,
+        content: result.content,
         timestamp: new Date().toLocaleTimeString(),
-        modelId: result.influencer_id,
-        modelName: availableModels.find((m) => m.influencer_id === result.influencer_id)?.influencer_name || "Unknown Model",
+        modelId: result.modelId,
+        modelName: result.modelName,
       }))
       setChatHistory((prev) => [...prev, ...aiMessages])
     } catch (error) {
