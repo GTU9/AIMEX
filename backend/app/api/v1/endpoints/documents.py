@@ -184,21 +184,25 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
     return {"documents_id": documents_id, "chunks": len(chunks), "is_vectorized": 1}
 
 
-@router.post("/by-influencer/{influencer_id}/vectorize")
-async def vectorize_influencer_documents(influencer_id: str, db: Session = Depends(get_db)):
-    """해당 인플루언서의 저장된 '모든' 문서를 청킹→임베딩→Milvus에 일괄 재구축한다.
+async def _rebuild_influencer_vectors(influencer_id: str, db: Session) -> dict:
+    """해당 인플루언서의 현재 저장된 모든 문서로 Milvus 벡터를 재구축한다.
 
-    업로드는 저장만 하고, 임베딩은 이 버튼(엔드포인트)으로 한 번에 수행한다.
-    매 호출마다 해당 인플루언서의 벡터를 전부 지우고 현재 문서 전체로 다시 쌓으므로,
-    문서 추가/삭제 후 이 버튼만 누르면 항상 최신 상태로 동기화된다.
+    매 호출마다 인플루언서 벡터를 전부 비우고 현재 문서 전체로 다시 쌓는다.
+    문서가 없으면(또는 텍스트가 없으면) 기존 벡터만 삭제 → 고아 벡터가 남지 않는다.
+    (업로드/삭제/재반영 모두 이 함수로 수렴시켜 항상 최신 상태 유지)
     """
     from app.services.rag_service import RAGDocumentProcessor, RAGConfig
     from app.services.embedding_client import embed_texts
     from app.services.rag_vector_store import get_vector_store
 
+    store = get_vector_store()
     docs = db.query(Documents).filter(Documents.influencer_id == influencer_id).all()
+
     if not docs:
-        raise HTTPException(status_code=404, detail="해당 인플루언서의 문서가 없습니다.")
+        store.delete_by_influencer(influencer_id)
+        logger.info(f"🧹 인플루언서 {influencer_id} 문서 없음 → 벡터 전체 삭제")
+        return {"influencer_id": influencer_id, "documents": 0,
+                "embedded_documents": 0, "chunks": 0, "skipped": []}
 
     proc = RAGDocumentProcessor(RAGConfig())
     rows: list[dict] = []   # {text, source}
@@ -225,14 +229,21 @@ async def vectorize_influencer_documents(influencer_id: str, db: Session = Depen
             if c and c.strip():
                 rows.append({"text": c.strip(), "source": doc.documents_name})
 
+    skipped_set = set(skipped)
+
     if not rows:
-        raise HTTPException(status_code=400, detail="임베딩할 텍스트가 없습니다.")
+        # 임베딩할 텍스트 없음 → 벡터 비우고 미반영 처리
+        store.delete_by_influencer(influencer_id)
+        for doc in docs:
+            doc.is_vectorized = 0
+        db.commit()
+        return {"influencer_id": influencer_id, "documents": len(docs),
+                "embedded_documents": 0, "chunks": 0, "skipped": skipped}
 
     texts = [r["text"] for r in rows]
     vecs = await embed_texts(texts)
 
-    store = get_vector_store()
-    store.delete_by_influencer(influencer_id)  # 전체 재구축: 기존 벡터 비우고 다시 쌓음
+    store.delete_by_influencer(influencer_id)  # 전체 재구축
     store.upsert([
         {
             "text": texts[i],
@@ -244,15 +255,13 @@ async def vectorize_influencer_documents(influencer_id: str, db: Session = Depen
         for i in range(len(texts))
     ])
 
-    # 처리된 문서만 벡터화 완료 표시
-    skipped_set = set(skipped)
     for doc in docs:
         doc.is_vectorized = 0 if doc.documents_name in skipped_set else 1
     db.commit()
 
     embedded_docs = len(docs) - len(skipped)
     logger.info(
-        f"✅ 인플루언서 {influencer_id} 일괄 임베딩 완료: 문서 {embedded_docs}/{len(docs)}개, 청크 {len(texts)}개"
+        f"✅ 인플루언서 {influencer_id} 벡터 재구축: 문서 {embedded_docs}/{len(docs)}개, 청크 {len(texts)}개"
     )
     return {
         "influencer_id": influencer_id,
@@ -261,6 +270,24 @@ async def vectorize_influencer_documents(influencer_id: str, db: Session = Depen
         "chunks": len(texts),
         "skipped": skipped,
     }
+
+
+@router.post("/by-influencer/{influencer_id}/vectorize")
+async def vectorize_influencer_documents(influencer_id: str, db: Session = Depends(get_db)):
+    """해당 인플루언서의 저장된 '모든' 문서를 청킹→임베딩→Milvus에 일괄 재구축한다.
+
+    업로드는 저장만 하고, 임베딩은 이 버튼(엔드포인트)으로 한 번에 수행한다.
+    """
+    docs_exist = (
+        db.query(Documents).filter(Documents.influencer_id == influencer_id).first()
+    )
+    if not docs_exist:
+        raise HTTPException(status_code=404, detail="해당 인플루언서의 문서가 없습니다.")
+
+    result = await _rebuild_influencer_vectors(influencer_id, db)
+    if result["chunks"] == 0:
+        raise HTTPException(status_code=400, detail="임베딩할 텍스트가 없습니다.")
+    return result
 
 
 @router.get("/by-influencer/{influencer_id}", response_model=DocumentListResponse)
@@ -549,8 +576,13 @@ async def delete_document(
     delete_from_s3: bool = Query(False, description="S3에서도 삭제할지 여부"),
     db: Session = Depends(get_db),
 ):
-    """문서 삭제"""
+    """문서 삭제 (삭제 후 남은 문서로 벡터 재구축 → 고아 벡터 제거)"""
     try:
+        # 삭제 전 소속 인플루언서/벡터화 여부 확보
+        doc = db.query(Documents).filter(Documents.documents_id == documents_id).first()
+        influencer_id = doc.influencer_id if doc else None
+        was_vectorized = bool(doc.is_vectorized) if doc else False
+
         rag_document_service = get_rag_document_service()
         success = await rag_document_service.delete_document(
             documents_id=documents_id, db=db, delete_from_s3=delete_from_s3
@@ -559,7 +591,16 @@ async def delete_document(
         if not success:
             raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다.")
 
-        return {"message": "문서가 성공적으로 삭제되었습니다."}
+        # 벡터화됐던 문서라면 Milvus 벡터를 남은 문서 기준으로 동기화 (best-effort)
+        rebuilt = None
+        if influencer_id and was_vectorized:
+            try:
+                rebuilt = await _rebuild_influencer_vectors(influencer_id, db)
+                logger.info(f"🔄 문서 삭제 후 벡터 동기화: {rebuilt}")
+            except Exception as e:
+                logger.warning(f"⚠️ 삭제 후 벡터 동기화 실패(계속): {e}")
+
+        return {"message": "문서가 성공적으로 삭제되었습니다.", "vectors_resynced": rebuilt is not None}
 
     except HTTPException:
         raise
