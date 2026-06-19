@@ -376,8 +376,10 @@ class ModalFinetuningManager(BaseModalManager):
 
         try:
             # 파인튜닝은 장시간 작업(수십 분~). 동기 호출이므로 긴 timeout 사용.
+            # Modal 웹 엔드포인트는 동기 응답 한도를 넘기는 긴 함수에 대해 303 리다이렉트로
+            # 결과 폴링 URL을 돌려준다 → follow_redirects 로 따라가 최종 결과(200)를 받는다.
             # (정석은 Modal spawn + 상태 폴링이나, 현재는 백그라운드 task 내 동기 호출.)
-            async with httpx.AsyncClient(timeout=1800) as client:
+            async with httpx.AsyncClient(timeout=1800, follow_redirects=True, max_redirects=100) as client:
                 response = await client.post(url, headers=self.headers, json=payload)
 
                 if response.status_code != 200:
