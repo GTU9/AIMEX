@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Upload, Loader2, Trash2, CheckCircle2, Circle } from "lucide-react";
+import { BookOpen, Upload, Loader2, Trash2, CheckCircle2, Circle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DocumentService, type InfluencerDocument } from "@/lib/services/document.service";
 
@@ -14,8 +14,11 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [embedding, setEmbedding] = useState(false);
   const [msg, setMsg] = useState<string>("");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const pendingCount = docs.filter((d) => d.is_vectorized !== 1).length;
 
   const load = async () => {
     try {
@@ -41,9 +44,8 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
     try {
       const up = await DocumentService.upload(file, influencerId);
       if (!up.success || !up.documents_id) throw new Error(up.message || "업로드 실패");
-      setMsg("업로드 완료, 벡터화 진행 중...");
-      await DocumentService.vectorize(up.documents_id);
-      setMsg("✅ 업로드 및 벡터화 완료");
+      // 업로드는 저장만. 반영은 아래 "챗봇에 반영" 버튼으로 일괄 수행.
+      setMsg("✅ 업로드 완료 — 아래 '챗봇에 반영'을 눌러 적용하세요.");
       await load();
     } catch (e: any) {
       setMsg(`❌ ${e?.message || "처리 실패"}`);
@@ -53,17 +55,22 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
     }
   };
 
-  const handleVectorize = async (id: string) => {
-    setBusyId(id);
-    setMsg("");
+  // 저장된 모든 문서를 한 번에 임베딩(Milvus 재구축)
+  const handleVectorizeAll = async () => {
+    setEmbedding(true);
+    setMsg("챗봇에 반영 중... (잠시 걸릴 수 있어요)");
     try {
-      await DocumentService.vectorize(id);
-      setMsg("✅ 벡터화 완료");
+      const res = await DocumentService.vectorizeAll(influencerId);
+      const skippedNote =
+        res.skipped && res.skipped.length > 0 ? ` (건너뜀 ${res.skipped.length}개)` : "";
+      setMsg(
+        `✅ 반영 완료 — 문서 ${res.embedded_documents}/${res.documents}개 적용${skippedNote}`
+      );
       await load();
     } catch (e: any) {
-      setMsg(`❌ 벡터화 실패: ${e?.message || ""}`);
+      setMsg(`❌ 반영 실패: ${e?.message || ""}`);
     } finally {
-      setBusyId(null);
+      setEmbedding(false);
     }
   };
 
@@ -86,7 +93,8 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
         <BookOpen className="h-8 w-8 mx-auto mb-2 text-blue-500" />
         <h2 className="text-xl font-bold mb-1">문서 / 지식 (RAG)</h2>
         <p className="text-gray-600 text-sm">
-          PDF/TXT/MD 문서를 업로드하면 벡터화되어, 챗봇이 해당 문서를 근거로 답변합니다.
+          문서를 업로드한 뒤 <b>챗봇에 반영</b>을 누르면, 저장된 모든 문서가 한 번에
+          적용되어 챗봇이 근거로 답변합니다. (업로드만으로는 반영되지 않습니다)
         </p>
       </div>
 
@@ -117,6 +125,28 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
         {msg && <p className="text-sm mt-3">{msg}</p>}
       </div>
 
+      {/* 전체 임베딩 버튼 */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs text-gray-500">
+          {docs.length > 0
+            ? pendingCount > 0
+              ? `미반영 ${pendingCount}개 · 반영이 필요합니다`
+              : "모든 문서가 반영됨"
+            : ""}
+        </span>
+        <Button
+          onClick={handleVectorizeAll}
+          disabled={embedding || docs.length === 0}
+          className="bg-green-600 hover:bg-green-700"
+        >
+          {embedding ? (
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 반영 중...</>
+          ) : (
+            <><Sparkles className="h-4 w-4 mr-2" /> 챗봇에 반영</>
+          )}
+        </Button>
+      </div>
+
       {/* 문서 목록 */}
       {loading ? (
         <div className="text-center py-8 text-gray-500">
@@ -140,26 +170,12 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
                 <div className="min-w-0">
                   <div className="font-medium text-sm truncate">{d.documents_name}</div>
                   <div className="text-xs text-gray-400">
-                    {d.is_vectorized === 1 ? "벡터화 완료" : "미벡터화"}
+                    {d.is_vectorized === 1 ? "반영됨" : "반영 대기"}
                     {d.file_size ? ` · ${(d.file_size / 1024).toFixed(1)} KB` : ""}
                   </div>
                 </div>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
-                {d.is_vectorized !== 1 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleVectorize(d.documents_id)}
-                    disabled={busyId === d.documents_id}
-                  >
-                    {busyId === d.documents_id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "벡터화"
-                    )}
-                  </Button>
-                )}
                 <Button
                   variant="ghost"
                   size="sm"

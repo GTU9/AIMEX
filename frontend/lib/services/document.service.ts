@@ -53,6 +53,22 @@ export class DocumentService {
     return await apiClient.post(`/api/v1/documents/${documentsId}/vectorize`, {});
   }
 
+  /** 인플루언서의 저장된 모든 문서를 일괄 임베딩(Milvus 재구축) */
+  static async vectorizeAll(
+    influencerId: string
+  ): Promise<{
+    influencer_id: string;
+    documents: number;
+    embedded_documents: number;
+    chunks: number;
+    skipped: string[];
+  }> {
+    return await apiClient.post(
+      `/api/v1/documents/by-influencer/${influencerId}/vectorize`,
+      {}
+    );
+  }
+
   /** 문서 삭제 */
   static async remove(documentsId: string): Promise<unknown> {
     return await apiClient.delete(`/api/v1/documents/${documentsId}`);

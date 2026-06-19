@@ -184,6 +184,85 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
     return {"documents_id": documents_id, "chunks": len(chunks), "is_vectorized": 1}
 
 
+@router.post("/by-influencer/{influencer_id}/vectorize")
+async def vectorize_influencer_documents(influencer_id: str, db: Session = Depends(get_db)):
+    """해당 인플루언서의 저장된 '모든' 문서를 청킹→임베딩→Milvus에 일괄 재구축한다.
+
+    업로드는 저장만 하고, 임베딩은 이 버튼(엔드포인트)으로 한 번에 수행한다.
+    매 호출마다 해당 인플루언서의 벡터를 전부 지우고 현재 문서 전체로 다시 쌓으므로,
+    문서 추가/삭제 후 이 버튼만 누르면 항상 최신 상태로 동기화된다.
+    """
+    from app.services.rag_service import RAGDocumentProcessor, RAGConfig
+    from app.services.embedding_client import embed_texts
+    from app.services.rag_vector_store import get_vector_store
+
+    docs = db.query(Documents).filter(Documents.influencer_id == influencer_id).all()
+    if not docs:
+        raise HTTPException(status_code=404, detail="해당 인플루언서의 문서가 없습니다.")
+
+    proc = RAGDocumentProcessor(RAGConfig())
+    rows: list[dict] = []   # {text, source}
+    skipped: list[str] = []
+
+    for doc in docs:
+        path = doc.file_path
+        if not path or not os.path.exists(path):
+            skipped.append(doc.documents_name)
+            continue
+        try:
+            if path.lower().endswith(".pdf"):
+                qa = await proc.process_pdf(path)
+                chunks = [q["answer"] for q in qa]
+            else:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = proc._preprocess_text(f.read())
+                chunks = proc._create_chunks(text)
+        except Exception as e:
+            logger.warning(f"⚠️ 문서 처리 실패 {doc.documents_name}: {e}")
+            skipped.append(doc.documents_name)
+            continue
+        for c in chunks:
+            if c and c.strip():
+                rows.append({"text": c.strip(), "source": doc.documents_name})
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="임베딩할 텍스트가 없습니다.")
+
+    texts = [r["text"] for r in rows]
+    vecs = await embed_texts(texts)
+
+    store = get_vector_store()
+    store.delete_by_influencer(influencer_id)  # 전체 재구축: 기존 벡터 비우고 다시 쌓음
+    store.upsert([
+        {
+            "text": texts[i],
+            "embedding": vecs[i],
+            "influencer_id": influencer_id,
+            "source": rows[i]["source"],
+            "chunk_id": i,
+        }
+        for i in range(len(texts))
+    ])
+
+    # 처리된 문서만 벡터화 완료 표시
+    skipped_set = set(skipped)
+    for doc in docs:
+        doc.is_vectorized = 0 if doc.documents_name in skipped_set else 1
+    db.commit()
+
+    embedded_docs = len(docs) - len(skipped)
+    logger.info(
+        f"✅ 인플루언서 {influencer_id} 일괄 임베딩 완료: 문서 {embedded_docs}/{len(docs)}개, 청크 {len(texts)}개"
+    )
+    return {
+        "influencer_id": influencer_id,
+        "documents": len(docs),
+        "embedded_documents": embedded_docs,
+        "chunks": len(texts),
+        "skipped": skipped,
+    }
+
+
 @router.get("/by-influencer/{influencer_id}", response_model=DocumentListResponse)
 async def list_documents_by_influencer(
     influencer_id: str, db: Session = Depends(get_db)
