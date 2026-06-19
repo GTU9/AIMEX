@@ -358,6 +358,27 @@ export class ModelService {
   }
 
   /**
+   * QA 생성(파인튜닝 파이프라인) 수동 트리거
+   */
+  static async triggerQaGeneration(influencerId: string): Promise<{ message: string; influencer_id: string }> {
+    return await apiClient.post(`/api/v1/influencers/${influencerId}/qa/generate`, {})
+  }
+
+  /**
+   * QA 생성 상태 조회 (배치 작업 목록)
+   */
+  static async getQaStatus(influencerId: string): Promise<any> {
+    return await apiClient.get(`/api/v1/influencers/${influencerId}/qa/status`)
+  }
+
+  /**
+   * 파인튜닝 상태 조회 (학습 작업 목록)
+   */
+  static async getFinetuningStatus(influencerId: string): Promise<any> {
+    return await apiClient.get(`/api/v1/influencers/${influencerId}/finetuning/status`)
+  }
+
+  /**
    * API 키로 챗봇 호출
    */
   static async callChatbot(

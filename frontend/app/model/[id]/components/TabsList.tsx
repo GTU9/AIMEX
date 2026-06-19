@@ -6,7 +6,8 @@ import {
   Info,
   Mic,
   Settings,
-  BookOpen
+  BookOpen,
+  Cpu
 } from "lucide-react";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -16,7 +17,7 @@ interface TabsListProps {
 
 export default function ModelTabsList({ className }: TabsListProps) {
   return (
-    <TabsList className={`grid w-full grid-cols-7 ${className || ""}`}>
+    <TabsList className={`grid w-full grid-cols-8 ${className || ""}`}>
       <TabsTrigger
         value="analytics"
         className="flex items-center space-x-2"
@@ -53,6 +54,10 @@ export default function ModelTabsList({ className }: TabsListProps) {
       <TabsTrigger value="documents" className="flex items-center space-x-2">
         <BookOpen className="h-4 w-4" />
         <span>문서</span>
+      </TabsTrigger>
+      <TabsTrigger value="finetuning" className="flex items-center space-x-2">
+        <Cpu className="h-4 w-4" />
+        <span>파인튜닝</span>
       </TabsTrigger>
     </TabsList>
   );

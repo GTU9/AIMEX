@@ -28,7 +28,8 @@ import {
   SettingsTab,
   VoiceTab,
   McpTab,
-  DocumentsTab
+  DocumentsTab,
+  FineTuningTab
 } from "./components";
 import {
   Dialog,
@@ -2757,6 +2758,10 @@ function ModelDetailContent() {
           {/* 문서/지식 탭 (RAG) */}
           <TabsContent value="documents">
             <DocumentsTab influencerId={model.id} />
+          </TabsContent>
+
+          <TabsContent value="finetuning">
+            <FineTuningTab influencerId={model.id} learningStatus={(model as any).learning_status} />
           </TabsContent>
         </Tabs>
 
