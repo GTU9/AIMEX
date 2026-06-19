@@ -103,7 +103,7 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.txt,.md"
+          accept=".pdf,.docx,.txt,.md"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -121,7 +121,7 @@ export default function DocumentsTab({ influencerId }: DocumentsTabProps) {
             <><Upload className="h-4 w-4 mr-2" /> 문서 업로드</>
           )}
         </Button>
-        <p className="text-xs text-gray-400 mt-2">PDF / TXT / MD, 최대 10MB</p>
+        <p className="text-xs text-gray-400 mt-2">PDF / DOCX / TXT / MD, 최대 10MB</p>
         {msg && <p className="text-sm mt-3">{msg}</p>}
       </div>
 

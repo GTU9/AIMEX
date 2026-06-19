@@ -27,6 +27,7 @@ import {
   VolumeX,
   Pause,
   Play,
+  FileText,
 } from "lucide-react"
 
 interface Message {
@@ -37,6 +38,7 @@ interface Message {
   isStreaming?: boolean // 스트리밍 중인 메시지를 위한 속성
   audioData?: string // base64 오디오 데이터
   audioFormat?: string // 오디오 포맷 (mp3, wav 등)
+  sources?: Array<{ source: string; text?: string; score?: number; type?: string }> // RAG/웹검색 참고 자료
 }
 
 interface ChatModel {
@@ -308,15 +310,24 @@ export default function ChatPage() {
             return newMessages;
           });
         } else if (data.type === "sources") {
-          // RAG 출처 표시 (원시 JSON 노출 방지, 참고 문서명만 간단 안내)
+          // RAG/웹검색 참고 자료 → 같은 출처는 최고 유사도 1건으로 정리해 카드로 표시
           const srcs = Array.isArray(data.data) ? data.data : [];
-          const names = [...new Set(srcs.map((s: any) => s?.source).filter(Boolean))];
-          if (names.length > 0) {
+          const bySource = new Map<string, { source: string; text?: string; score?: number; type?: string }>();
+          for (const s of srcs) {
+            const key = s?.source || "unknown";
+            const prev = bySource.get(key);
+            if (!prev || (s?.score ?? 0) > (prev.score ?? 0)) {
+              bySource.set(key, { source: key, text: s?.text, score: s?.score, type: s?.type });
+            }
+          }
+          const merged = Array.from(bySource.values());
+          if (merged.length > 0) {
             setMessages(prev => [...prev, {
               id: Date.now().toString() + "-src",
-              content: `📄 참고 문서: ${names.join(", ")}`,
+              content: "",
               sender: "bot",
               timestamp: new Date(),
+              sources: merged,
             }]);
           }
         } else if (data.type === "error") {
@@ -935,7 +946,39 @@ export default function ChatPage() {
                   )}
 
                   <div className={`flex flex-col ${message.sender === "user" ? "items-end" : "items-start"} max-w-[70%]`}>
-                    {/* 말풍선 */}
+                    {/* 참고 자료 카드 (RAG 문서 / 웹검색): 어떤 자료의 어느 부분을 유사도와 함께 표시 */}
+                    {message.sources && message.sources.length > 0 ? (
+                      <div className="rounded-2xl rounded-bl-sm bg-blue-50/70 border border-blue-100 px-3 py-2.5 space-y-2 w-full">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                          <FileText className="h-3.5 w-3.5" />
+                          답변에 참고한 자료 {message.sources.length}건
+                        </div>
+                        {message.sources.map((s, i) => {
+                          const isWeb = s.type === 'mcp' || String(s.source).startsWith('web-search');
+                          const label = isWeb ? '웹 검색 결과' : s.source;
+                          return (
+                            <div key={i} className="rounded-lg bg-white border border-blue-100 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-xs font-medium text-gray-800 truncate">
+                                  {isWeb ? '🌐' : '📄'} {label}
+                                </span>
+                                {typeof s.score === 'number' && (
+                                  <span className="text-[11px] font-semibold text-blue-600 shrink-0 bg-blue-50 rounded px-1.5 py-0.5">
+                                    유사도 {Math.round(s.score * 100)}%
+                                  </span>
+                                )}
+                              </div>
+                              {s.text && (
+                                <p className="text-[11px] text-gray-500 leading-relaxed line-clamp-3">
+                                  “{s.text.trim()}”
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                    /* 말풍선 */
                     <div
                       className={`rounded-2xl px-4 py-2 ${
                         message.sender === "user"
@@ -945,8 +988,8 @@ export default function ChatPage() {
                     >
                       {/* 로딩 메시지는 이탤릭체와 회색으로 표시 */}
                       <p className={`text-sm whitespace-pre-wrap break-words ${
-                        message.isStreaming && message.content.includes('중...') 
-                          ? 'text-gray-600 italic' 
+                        message.isStreaming && message.content.includes('중...')
+                          ? 'text-gray-600 italic'
                           : ''
                       }`}>
                         {message.content}
@@ -958,6 +1001,7 @@ export default function ChatPage() {
                         </div>
                       )}
                     </div>
+                    )}
                     
                     {/* 시간 및 TTS 버튼 */}
                     <div className={`flex items-center mt-1 space-x-1 ${message.sender === "user" ? "flex-row-reverse space-x-reverse" : ""}`}>

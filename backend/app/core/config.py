@@ -131,7 +131,7 @@ class Settings(BaseSettings):
     MILVUS_URI: str = os.getenv("MILVUS_URI", "http://localhost:19530")
     MILVUS_TOKEN: Optional[str] = os.getenv("MILVUS_TOKEN")
     RAG_TOP_K: int = int(os.getenv("RAG_TOP_K", "4"))
-    RAG_SCORE_THRESHOLD: float = float(os.getenv("RAG_SCORE_THRESHOLD", "0.6"))
+    RAG_SCORE_THRESHOLD: float = float(os.getenv("RAG_SCORE_THRESHOLD", "0.5"))
 
     # 커스텀 노드 설정
     RUNPOD_CUSTOM_NODES: List[str] = []

@@ -140,3 +140,5 @@ async-timeout==5.0.1
 aiohappyeyeballs==2.6.1
 nest-asyncio==1.6.0
 colorama==0.4.6
+
+python-docx==1.1.2

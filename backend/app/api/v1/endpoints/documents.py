@@ -10,6 +10,7 @@ from sqlalchemy import select
 import logging
 import tempfile
 import os
+import re
 from datetime import datetime
 
 from app.database import get_db
@@ -95,8 +96,8 @@ async def upload_document(
         logger.info(f"📥 문서 업로드 시작: {file.filename} (influencer_id={influencer_id})")
 
         fname = (file.filename or "").lower()
-        if not (fname.endswith(".pdf") or fname.endswith(".txt") or fname.endswith(".md")):
-            raise HTTPException(status_code=400, detail="PDF/TXT/MD 파일만 업로드 가능합니다.")
+        if not (fname.endswith(".pdf") or fname.endswith(".txt") or fname.endswith(".md") or fname.endswith(".docx")):
+            raise HTTPException(status_code=400, detail="PDF/DOCX/TXT/MD 파일만 업로드 가능합니다.")
 
         content = await file.read()
         if len(content) > 10 * 1024 * 1024:
@@ -140,6 +141,61 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=f"문서 업로드 실패: {str(e)}")
 
 
+def _chunk_plaintext(raw: str, max_len: int = 400) -> list:
+    """txt/md/docx 텍스트를 마크다운 헤더(섹션)·줄 단위로 의미 있는 청크로 분할.
+
+    rag_service._preprocess_text 는 개행을 모두 공백으로 합쳐 문서를 한 덩어리로 만들어
+    검색 정밀도가 떨어진다. 여기서는 섹션/항목 구조를 보존해 작은 청크로 나눠 RAG 적중률을 높인다.
+    """
+    raw = (raw or "").replace("\r\n", "\n")
+    sections = re.split(r"\n(?=#{1,6}\s)", raw)  # 마크다운 헤더 기준 섹션 분리
+    chunks = []
+    for sec in sections:
+        header = ""
+        buf = ""
+        for ln in sec.split("\n"):
+            ln = ln.strip()
+            if not ln:
+                continue
+            if re.match(r"^#{1,6}\s", ln):
+                header = ln.lstrip("#").strip()
+                continue
+            ln = ln.lstrip("-*•").strip()
+            if not ln:
+                continue
+            piece = f"[{header}] {ln}" if header else ln
+            if len(buf) + len(piece) > max_len:
+                if buf:
+                    chunks.append(buf.strip())
+                buf = piece
+            else:
+                buf = (buf + " " + piece).strip()
+        if buf:
+            chunks.append(buf.strip())
+    return [c for c in chunks if len(c.strip()) >= 5]
+
+
+async def _extract_chunks(path: str, proc) -> list:
+    """파일 형식별 텍스트 추출 + 청킹 (pdf/docx/txt/md)."""
+    low = path.lower()
+    if low.endswith(".pdf"):
+        qa = await proc.process_pdf(path)
+        return [q["answer"] for q in qa if q.get("answer")]
+    if low.endswith(".docx"):
+        from docx import Document as DocxDocument
+        d = DocxDocument(path)
+        parts = [p.text for p in d.paragraphs if p.text and p.text.strip()]
+        for tbl in d.tables:
+            for row in tbl.rows:
+                cells = [c.text.strip() for c in row.cells if c.text and c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
+        return _chunk_plaintext("\n".join(parts))
+    # txt / md
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        return _chunk_plaintext(f.read())
+
+
 @router.post("/{documents_id}/vectorize")
 async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
     """문서를 청킹→임베딩(Modal)→Milvus 저장하여 RAG 검색 가능 상태로 만든다."""
@@ -158,13 +214,7 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="원본 파일이 존재하지 않습니다.")
 
-    if path.lower().endswith(".pdf"):
-        qa = await proc.process_pdf(path)
-        chunks = [q["answer"] for q in qa]
-    else:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            text = proc._preprocess_text(f.read())
-        chunks = proc._create_chunks(text)
+    chunks = await _extract_chunks(path, proc)
 
     chunks = [c for c in chunks if c and c.strip()]
     if not chunks:
@@ -214,13 +264,7 @@ async def _rebuild_influencer_vectors(influencer_id: str, db: Session) -> dict:
             skipped.append(doc.documents_name)
             continue
         try:
-            if path.lower().endswith(".pdf"):
-                qa = await proc.process_pdf(path)
-                chunks = [q["answer"] for q in qa]
-            else:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    text = proc._preprocess_text(f.read())
-                chunks = proc._create_chunks(text)
+            chunks = await _extract_chunks(path, proc)
         except Exception as e:
             logger.warning(f"⚠️ 문서 처리 실패 {doc.documents_name}: {e}")
             skipped.append(doc.documents_name)
