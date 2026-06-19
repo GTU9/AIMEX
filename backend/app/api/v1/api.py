@@ -27,7 +27,6 @@ from app.api.v1.endpoints import (
     documents,  # DOCUMENTS 테이블 API
     gallery,  # 갤러리 API
     image_modification,  # 이미지 수정 API
-    runpod,  # RunPod 비용 조회 API
     notifications,  # 알림 API
 )
 
@@ -103,9 +102,6 @@ api_router.include_router(
 
 # 관리자 페이지 API
 api_router.include_router(admin.router, prefix="/admin", tags=["Administrator"])
-
-# RunPod 비용 조회 API
-api_router.include_router(runpod.router, prefix="/runpod", tags=["RunPod"])
 
 # ComfyUI 이미지 생성 API
 api_router.include_router(comfyui.router, prefix="/comfyui", tags=["ComfyUI"])
