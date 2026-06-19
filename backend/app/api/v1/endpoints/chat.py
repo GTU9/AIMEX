@@ -164,24 +164,20 @@ async def chatbot_chat(
                 # 응답 전체 로깅
                     logger.info(f"🔍 RunPod 응답 전체: {json.dumps(result, indent=2, ensure_ascii=False)}")
                     
-                    # RunPod 응답 처리 (새로운 형식)
-                    if result.get("status") == "completed":
-                        # output 내의 generated_text 확인
-                        output = result.get("output", {})
-                        response_text = output.get("generated_text", "")
-                        
-                        if response_text:
-                            logger.info(f"✅ 생성된 텍스트: {response_text[:100]}...")
-                        else:
-                            logger.warning(f"⚠️ 응답에 generated_text가 없음: {result}")
-                            response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. 응답 생성 중 문제가 발생했습니다."
-                    elif result.get("status") == "failed":
-                        # 실패한 경우
-                        logger.error(f"❌ RunPod 요청 실패: {result.get('error', 'Unknown error')}")
-                        response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
+                    # runsync 결과 파싱 (Modal=문자열, RunPod=dict 모두 호환)
+                    if isinstance(result, str):
+                        response_text = result.strip()
+                    elif isinstance(result, dict):
+                        _out = result.get("output")
+                        response_text = (
+                            result.get("generated_text")
+                            or (_out.get("generated_text") if isinstance(_out, dict) else None)
+                            or ""
+                        ).strip()
                     else:
-                        # 예상하지 못한 응답 형식
-                        logger.warning(f"⚠️ 예상하지 못한 RunPod 응답 형식: {result}")
+                        response_text = ""
+                    if not response_text:
+                        logger.warning(f"⚠️ 빈 응답: {result}")
                         response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
 
                 logger.info(f"✅ RunPod 응답 생성 성공: {influencer.influencer_name}")
@@ -469,21 +465,19 @@ async def chatbot_chat_stream(
                 # runsync로 전체 응답 받기
                 result = await vllm_manager.runsync(payload)
                 
-                # 응답 처리
-                response_text = ""
-                if result.get("status") == "completed":
-                    response_text = result.get("generated_text", "")
-                    if not response_text:
-                        # 이전 형식 호환성
-                        output = result.get("output", {})
-                        response_text = output.get("generated_text", "")
-                    
-                    if not response_text:
-                        response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. 응답 생성 중 문제가 발생했습니다."
-                        
-                    logger.info(f"✅ 생성된 텍스트: {response_text[:100]}...")
+                # 응답 처리 (Modal=문자열, RunPod=dict 모두 호환)
+                if isinstance(result, str):
+                    response_text = result.strip()
+                elif isinstance(result, dict):
+                    _out = result.get("output")
+                    response_text = (
+                        result.get("generated_text")
+                        or (_out.get("generated_text") if isinstance(_out, dict) else None)
+                        or ""
+                    ).strip()
                 else:
-                    logger.error(f"❌ RunPod 요청 실패: {result.get('error', 'Unknown error')}")
+                    response_text = ""
+                if not response_text:
                     response_text = f"안녕하세요! 저는 {influencer.influencer_name}입니다. '{request.message}'에 대한 답변을 드리겠습니다."
                 
                 # 타이핑 시작 상태 전송
