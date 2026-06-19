@@ -2701,15 +2701,7 @@ function ModelDetailContent() {
           </TabsContent>
 
           {/* 연동 탭 */}
-          <TabsContent value="integrations">
-            <IntegrationsTab
-              instagramStatus={instagramStatus}
-              isConnecting={isConnecting}
-              handleInstagramConnect={handleInstagramConnect}
-              handleInstagramDisconnect={handleInstagramDisconnect}
-              PostImage={PostImage}
-            />
-          </TabsContent>
+          {/* 연동(Instagram) 탭은 외부 요건(IG 비즈니스 계정·공개 URL·앱 리뷰) 미비로 현재 숨김 */}
 
           {/* 정보 탭 */}
           <TabsContent value="settings">

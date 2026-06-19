@@ -16,7 +16,7 @@ interface TabsListProps {
 
 export default function ModelTabsList({ className }: TabsListProps) {
   return (
-    <TabsList className={`grid w-full grid-cols-8 ${className || ""}`}>
+    <TabsList className={`grid w-full grid-cols-7 ${className || ""}`}>
       <TabsTrigger
         value="analytics"
         className="flex items-center space-x-2"
@@ -34,13 +34,6 @@ export default function ModelTabsList({ className }: TabsListProps) {
       <TabsTrigger value="api" className="flex items-center space-x-2">
         <Download className="h-4 w-4" />
         <span>API</span>
-      </TabsTrigger>
-      <TabsTrigger
-        value="integrations"
-        className="flex items-center space-x-2"
-      >
-        <Link2 className="h-4 w-4" />
-        <span>연동</span>
       </TabsTrigger>
       <TabsTrigger
         value="settings"
