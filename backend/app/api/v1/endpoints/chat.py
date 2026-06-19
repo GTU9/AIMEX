@@ -154,7 +154,7 @@ async def chatbot_chat(
                             "hf_repo": hf_repo,
                             "system_message": system_message,
                             "prompt": request.message,
-                            "temperature": 1,
+                            "temperature": 0.7,
                             "max_tokens": 2048
                         }
                     }
@@ -316,7 +316,7 @@ async def chatbot_for_user(
                             "hf_repo": hf_repo,
                             "system_message": system_message,
                             "prompt": request.message,
-                            "temperature": 1,
+                            "temperature": 0.7,
                             "max_tokens": 2048
                         }
                     }
@@ -457,7 +457,7 @@ async def chatbot_chat_stream(
                         "hf_repo": hf_repo,
                         "system_message": system_message,
                         "prompt": request.message,
-                        "temperature": 1,
+                        "temperature": 0.7,
                         "max_tokens": 2048
                     }
                 }
