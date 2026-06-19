@@ -109,9 +109,10 @@ export default function DashboardPage() {
       try {
         await ModelService.deleteInfluencer(influencerId)
         setInfluencers((prev) => prev.filter((inf) => inf.influencer_id !== influencerId))
-      } catch (err) {
-        // console.error('Failed to delete influencer:', err)
-        setError('인플루언서 삭제에 실패했습니다.')
+      } catch (err: any) {
+        // 서버가 준 사유(예: 학습 중 삭제 불가 409)를 그대로 노출
+        const serverMsg = err?.message || err?.detail
+        setError(serverMsg || '인플루언서 삭제에 실패했습니다.')
       }
     }
   }

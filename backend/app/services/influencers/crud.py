@@ -354,40 +354,108 @@ async def update_influencer(
 
 
 async def delete_influencer(db: Session, user_id: str, influencer_id: str):
-    """AI 인플루언서 삭제"""
+    """AI 인플루언서 삭제 (학습 중 차단 + 연관 데이터/파일/벡터 일괄 삭제)."""
+    import os
+
     influencer = await get_influencer_by_id(db, user_id, influencer_id)
 
-    # 연관된 데이터 삭제 순서가 중요함 (외래키 제약 때문에)
-    from app.models.influencer import BatchKey, InfluencerAPI, APICallAggregation
+    # 0. 학습 중에는 삭제 불가 (learning_status: 0=학습 중, 1=사용가능)
+    if influencer.learning_status == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="학습 중인 인플루언서는 삭제할 수 없습니다. 학습 완료 후 다시 시도해주세요.",
+        )
 
-    # 1. 먼저 API 호출 집계 데이터 삭제 (InfluencerAPI를 참조하는 테이블)
-    # API ID들을 먼저 조회 (리스트로 변환)
+    # 연관된 데이터 삭제 순서가 중요함 (외래키 제약 때문에)
+    from app.models.influencer import (
+        BatchKey,
+        InfluencerAPI,
+        APICallAggregation,
+        GeneratedTone,
+    )
+    from app.models.influencer_qa import InfluencerQAPair
+    from app.models.voice import VoiceBase, GeneratedVoice
+    from app.models.rag import Documents
+    from app.models.conversation import Conversation, ConversationMessage
+    from app.models.chat_message import ChatMessage
+    from app.models.board import Board
+    from app.models.mcp_server import ai_influencer_mcp_server
+
+    # 1. 삭제할 로컬 파일 경로 수집 (음성 base/생성물, RAG 문서) — 행 삭제 전에 미리 수집
+    local_files: list[str] = []
+    for vb in db.query(VoiceBase).filter(VoiceBase.influencer_id == influencer_id).all():
+        local_files += [vb.s3_url, vb.s3_key]
+    for gv in db.query(GeneratedVoice).filter(GeneratedVoice.influencer_id == influencer_id).all():
+        local_files += [gv.s3_url, gv.s3_key]
+    for doc in db.query(Documents).filter(Documents.influencer_id == influencer_id).all():
+        local_files.append(doc.file_path)
+
+    # 2. Milvus 벡터 삭제 (best-effort — 실패해도 삭제 진행)
+    try:
+        from app.services.rag_vector_store import get_vector_store
+
+        get_vector_store().delete_by_influencer(influencer_id)
+        logger.info(f"🗑️ 인플루언서 {influencer_id}의 RAG 벡터 삭제 완료")
+    except Exception as e:
+        logger.warning(f"⚠️ RAG 벡터 삭제 실패(계속 진행): {e}")
+
+    # 3. DB 자식 데이터 삭제 (FK 순서 준수)
+    # 3-1. API 호출 집계 → InfluencerAPI
     api_ids = [row[0] for row in db.query(InfluencerAPI.api_id).filter(
         InfluencerAPI.influencer_id == influencer_id
     ).all()]
-    
     if api_ids:
-        # API_CALL_AGGREGATION 데이터 삭제
         db.query(APICallAggregation).filter(
             APICallAggregation.api_id.in_(api_ids)
         ).delete(synchronize_session='fetch')
-        logger.info(f"🗑️ 인플루언서 {influencer_id}의 API 호출 집계 데이터 삭제 완료")
-
-    # 2. InfluencerAPI 데이터 삭제
     db.query(InfluencerAPI).filter(
         InfluencerAPI.influencer_id == influencer_id
     ).delete(synchronize_session='fetch')
-    logger.info(f"🗑️ 인플루언서 {influencer_id}의 API 키 데이터 삭제 완료")
 
-    # 3. BatchKey 데이터 삭제
-    db.query(BatchKey).filter(
-        BatchKey.influencer_id == influencer_id
-    ).delete(synchronize_session='fetch')
-    logger.info(f"🗑️ 인플루언서 {influencer_id}와 연관된 BatchKey 데이터 삭제 완료")
+    # 3-2. BatchKey / QA / 어투
+    db.query(BatchKey).filter(BatchKey.influencer_id == influencer_id).delete(synchronize_session='fetch')
+    db.query(InfluencerQAPair).filter(InfluencerQAPair.influencer_id == influencer_id).delete(synchronize_session='fetch')
+    db.query(GeneratedTone).filter(GeneratedTone.influencer_id == influencer_id).delete(synchronize_session='fetch')
 
-    # 4. 마지막으로 인플루언서 삭제
+    # 3-3. 음성 (생성물 → base 순서: generated_voice.base_voice_id FK)
+    db.query(GeneratedVoice).filter(GeneratedVoice.influencer_id == influencer_id).delete(synchronize_session='fetch')
+    db.query(VoiceBase).filter(VoiceBase.influencer_id == influencer_id).delete(synchronize_session='fetch')
+
+    # 3-4. RAG 문서
+    db.query(Documents).filter(Documents.influencer_id == influencer_id).delete(synchronize_session='fetch')
+
+    # 3-5. 대화 세션/메시지 (bulk delete 는 ORM cascade 가 안 도므로 메시지 먼저 삭제)
+    conv_ids = [row[0] for row in db.query(Conversation.conversation_id).filter(
+        Conversation.influencer_id == influencer_id
+    ).all()]
+    if conv_ids:
+        db.query(ConversationMessage).filter(
+            ConversationMessage.conversation_id.in_(conv_ids)
+        ).delete(synchronize_session='fetch')
+    db.query(Conversation).filter(Conversation.influencer_id == influencer_id).delete(synchronize_session='fetch')
+
+    # 3-6. 채팅 메시지 / 게시글 / MCP 연결(다대다)
+    db.query(ChatMessage).filter(ChatMessage.influencer_id == influencer_id).delete(synchronize_session='fetch')
+    db.query(Board).filter(Board.influencer_id == influencer_id).delete(synchronize_session='fetch')
+    db.execute(
+        ai_influencer_mcp_server.delete().where(
+            ai_influencer_mcp_server.c.influencer_id == influencer_id
+        )
+    )
+
+    # 4. 마지막으로 인플루언서 본체 삭제
     db.delete(influencer)
     db.commit()
 
-    logger.info(f"✅ 인플루언서 {influencer_id} 삭제 완료")
-    return {"message": "Influencer deleted successfully"}
+    # 5. 로컬 파일 삭제 (DB 커밋 후, best-effort)
+    removed = 0
+    for p in local_files:
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+                removed += 1
+        except Exception as fe:
+            logger.warning(f"⚠️ 로컬 파일 삭제 실패(계속 진행) {p}: {fe}")
+
+    logger.info(f"✅ 인플루언서 {influencer_id} 일괄 삭제 완료 (로컬 파일 {removed}개 제거)")
+    return {"message": "Influencer deleted successfully", "files_removed": removed}
