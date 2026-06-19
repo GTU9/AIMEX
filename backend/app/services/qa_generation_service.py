@@ -363,11 +363,29 @@ class QAGenerationService:
                             if choices and choices[0].get("message"):
                                 content = choices[0]["message"]["content"]
                                 
-                                # JSON 파싱
+                                # JSON 파싱 (모델 출력: list 또는 {"대화":[...]} dict 모두 허용)
                                 try:
-                                    qa_data = json.loads(content)
+                                    raw = content.strip()
+                                    if raw.startswith("```"):
+                                        # ```json ... ``` 코드펜스 제거
+                                        raw = raw.split("```", 2)[1]
+                                        if raw.lstrip().lower().startswith("json"):
+                                            raw = raw.lstrip()[4:]
+                                    qa_data = json.loads(raw)
+                                    # dict 면 내부의 첫 리스트 값을 사용 (예: {"대화":[...]})
+                                    if isinstance(qa_data, dict):
+                                        qa_data = next(
+                                            (v for v in qa_data.values() if isinstance(v, list)),
+                                            [],
+                                        )
                                     if isinstance(qa_data, list):
-                                        qa_pairs.extend(qa_data)
+                                        for item in qa_data:
+                                            if not isinstance(item, dict):
+                                                continue
+                                            q = item.get("question") or item.get("q") or item.get("user")
+                                            a = item.get("answer") or item.get("a") or item.get("assistant")
+                                            if q and a:
+                                                qa_pairs.append({"question": q, "answer": a})
                                 except json.JSONDecodeError:
                                     logger.warning(f"JSON 파싱 실패: {content[:100]}...")
                         
