@@ -54,24 +54,15 @@ export default function GalleryPage() {
         return
       }
 
-      // 팀 ID 설정
+      // 팀 ID: 숫자 팀 ID 일 때만 필터로 전달. 없으면 백엔드가 본인 생성물 기준으로 조회.
       const teamId = selectedTeam || (user?.teams?.[0] || '')
-      if (!teamId) {
-        toast({
-          title: "팀 정보 없음",
-          description: '소속된 팀이 없습니다.',
-          variant: "destructive",
-          duration: 3000,
-        })
-        setLoading(false)
-        return
-      }
-
       const params = new URLSearchParams({
         page: page.toString(),
         page_size: '12',
-        team_id: teamId.toString()
       })
+      if (teamId && !Number.isNaN(Number(teamId))) {
+        params.append('team_id', String(teamId))
+      }
 
       const response = await fetch(`/api/v1/gallery/images?${params}`, {
         headers: {
