@@ -322,13 +322,25 @@ export default function ChatPage() {
           }
           const merged = Array.from(bySource.values());
           if (merged.length > 0) {
-            setMessages(prev => [...prev, {
-              id: Date.now().toString() + "-src",
-              content: "",
-              sender: "bot",
-              timestamp: new Date(),
-              sources: merged,
-            }]);
+            setMessages(prev => {
+              const msgs = [...prev];
+              const srcMsg = {
+                id: Date.now().toString() + "-src",
+                content: "",
+                sender: "bot" as const,
+                timestamp: new Date(),
+                sources: merged,
+              };
+              // 로딩/스트리밍 말풍선이 마지막이면 그 "앞"에 카드 삽입 →
+              // 이후 token 핸들러가 로딩 말풍선을 정상적으로 답변으로 교체(스테일 '중...' 방지)
+              const last = msgs[msgs.length - 1];
+              if (last && last.sender === "bot" && last.isStreaming) {
+                msgs.splice(msgs.length - 1, 0, srcMsg);
+              } else {
+                msgs.push(srcMsg);
+              }
+              return msgs;
+            });
           }
         } else if (data.type === "error") {
           // 에러 처리

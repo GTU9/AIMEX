@@ -382,18 +382,24 @@ export class ModelService {
    * API 키로 챗봇 호출
    */
   static async callChatbot(
-    apiKey: string, 
+    apiKey: string,
     request: ChatbotRequest
   ): Promise<ChatbotResponse> {
-    return await apiClient.post<ChatbotResponse>(
-      '/api/v1/chat/chatbot',
-      request,
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`
-        }
-      }
-    )
+    // apiClient 는 JWT 를 Authorization 에 강제 주입하고 401 시 로그인으로 리다이렉트하므로,
+    // 외부 공개 API(키 인증) 호출은 raw fetch 로 Bearer api_key 만 전달한다.
+    const response = await fetch('/api/v1/chat/chatbot', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(request),
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err?.detail || err?.error || `챗봇 호출 실패 (${response.status})`)
+    }
+    return await response.json()
   }
 
   /**
