@@ -743,7 +743,9 @@ export default function CreateModelPage() {
             대시보드로 돌아가기
           </Link>
           <h1 className="text-3xl font-bold text-gray-900">새 AI 인플루언서 생성</h1>
-          <p className="text-gray-600 mt-2">AI 인플루언서의 특성과 학습 데이터를 설정하세요</p>
+          <p className="text-gray-600 mt-2">
+            이름·성격·MBTI·말투를 설정해 나만의 AI 인플루언서를 만듭니다. 생성 후 설정값을 바탕으로 QA 데이터 생성과 LoRA 파인튜닝이 진행되어 고유한 캐릭터로 대화하게 됩니다.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">

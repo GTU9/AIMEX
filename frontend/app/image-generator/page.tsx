@@ -1591,7 +1591,9 @@ export default function ImageGeneratorPage() {
             <div className="flex justify-between items-start">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">이미지 생성 & 수정</h1>
-                <p className="text-gray-600 mt-2">AI로 이미지를 생성하고 수정하세요</p>
+                <p className="text-gray-600 mt-2">
+                  한글 프롬프트를 입력하면 자동으로 영문 최적화 후 SDXL-Turbo(Modal GPU)로 이미지를 생성합니다. 생성한 이미지는 지시문으로 다시 편집(InstructPix2Pix)하거나 갤러리에 저장됩니다.
+                </p>
               </div>
               {/* 상단 우측 정보 영역 */}
               <div className="flex flex-col space-y-2">

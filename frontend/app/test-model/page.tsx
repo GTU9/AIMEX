@@ -166,7 +166,9 @@ export default function TestModelPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">AI 인플루언서 테스트</h1>
-          <p className="text-gray-600 mt-2">여러 AI 인플루언서와 동시에 대화하고 응답을 비교해보세요</p>
+          <p className="text-gray-600 mt-2">
+            최대 3명의 인플루언서를 선택해 같은 질문을 동시에 보내고 답변을 비교합니다. 실제 외부 공개 API(Bearer API 키)와 동일한 경로로 호출되어, 파인튜닝된 말투가 그대로 적용됩니다.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" style={{ height: 'calc(100vh - 250px)' }}>

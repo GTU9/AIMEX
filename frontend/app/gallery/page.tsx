@@ -245,8 +245,11 @@ export default function GalleryPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-4">이미지 갤러리</h1>
-        
+        <h1 className="text-3xl font-bold mb-2">이미지 갤러리</h1>
+        <p className="text-gray-600 mb-4">
+          생성·편집한 이미지가 팀별로 저장되는 보관함입니다. 프롬프트와 함께 모아 보고, 다운로드하거나 삭제할 수 있습니다.
+        </p>
+
         {/* 필터 영역 */}
         <div className="flex gap-4 mb-6">
           {user?.teams && user.teams.length > 1 && (

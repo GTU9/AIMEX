@@ -163,7 +163,9 @@ export default function DashboardPage() {
           {/* 대시보드 타이틀 및 설명 */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">AI 인플루언서 대시보드</h1>
-            <p className="text-gray-600 mt-2">생성된 AI 인플루언서를 관리하세요</p>
+            <p className="text-gray-600 mt-2">
+              직접 만든 AI 인플루언서를 한곳에서 관리합니다. 카드를 선택하면 대화·이미지 생성·음성(TTS)·문서 기반 답변(RAG)·파인튜닝 등 세부 기능을 사용할 수 있습니다.
+            </p>
           </div>
 
           {/* 필터 & 검색 UI */}
