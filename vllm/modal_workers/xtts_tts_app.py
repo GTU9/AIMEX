@@ -39,7 +39,7 @@ def _download_model():
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "libsndfile1")
-    .pip_install("torch", "torchaudio", "transformers==4.46.3", "coqui-tts", "fastapi[standard]", "soundfile", "hangul_romanize", "jamo")
+    .pip_install("torch", "torchaudio", "torchcodec", "transformers==4.46.3", "coqui-tts", "fastapi[standard]", "soundfile", "hangul_romanize", "jamo")
     .env({"COQUI_TOS_AGREED": "1"})
     .run_function(_download_model)
 )

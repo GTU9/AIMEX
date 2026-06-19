@@ -62,127 +62,91 @@ async def generate_voice(
         raise HTTPException(status_code=400, detail="텍스트는 500자 이하여야 합니다")
     
     try:
-        # TTS 매니저로 서버 상태 확인
+        import base64
+        import os
+
         tts_manager = get_tts_manager()
-        runpod_available = await tts_manager.health_check()
-        if not runpod_available:
-            logger.error("RunPod 서버를 사용할 수 없습니다")
-            raise HTTPException(
-                status_code=503, 
-                detail="음성 생성 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해주세요."
-            )
-        
-        # S3 presigned URL 생성
-        if base_voice.s3_key:
-            presigned_url = s3_service.generate_presigned_url(
-                s3_key=base_voice.s3_key,
-                expiration=3600  # 1시간 유효
-            )
+
+        # 베이스 음성(로컬 파일) → base64 (음성 클로닝 참조)
+        voice_b64 = None
+        bpath = base_voice.s3_url
+        if bpath and os.path.exists(bpath):
+            with open(bpath, "rb") as bf:
+                voice_b64 = base64.b64encode(bf.read()).decode()
         else:
-            # s3_key가 없으면 s3_url에서 추출
-            import re
-            match = re.search(r'amazonaws\.com/(.+)$', base_voice.s3_url)
-            if match:
-                object_key = match.group(1)
-                presigned_url = s3_service.generate_presigned_url(
-                    s3_key=object_key,
-                    expiration=3600
-                )
-            else:
-                presigned_url = base_voice.s3_url  # fallback
-        
-        # DB에 먼저 레코드 생성
+            logger.warning(f"베이스 음성 파일 없음(기본 음색 사용): {bpath}")
+
+        # DB 레코드 생성 (pending)
         generated_voice = GeneratedVoice(
             influencer_id=influencer.influencer_id,
             base_voice_id=base_voice.id,
             text=request.text,
-            task_id=None,  # 더 이상 필요 없음
+            task_id=None,
             status="pending",
-            s3_url=None,  # 아직 생성되지 않음
+            s3_url=None,
             s3_key=None,
             duration=None,
-            file_size=None
+            file_size=None,
         )
         db.add(generated_voice)
         db.commit()
-        db.refresh(generated_voice)  # ID 가져오기
-        
+        db.refresh(generated_voice)
         voice_id = generated_voice.id
         logger.info(f"음성 생성 레코드 생성: voice_id={voice_id}")
-        
-        # TTS 매니저로 음성 생성 요청 - 새로운 메서드 사용
-        logger.info(f"음성 생성 요청: text={request.text[:50]}..., influencer_id={request.influencer_id}")
-        
+
+        # Modal XTTS 동기 호출 (응답: {output:{audio_base64, duration, ...}})
         job_input = {
             "text": request.text,
             "influencer_id": request.influencer_id,
-            "base_voice_id": base_voice.id,
-            "voice_id": voice_id,  # DB에서 생성된 ID 전달
-            "output_format": "wav",
-            "emotion_name": "neutral"  # 기본 감정 설정
+            "voice_data_base64": voice_b64,
         }
-        # presigned_url이 있으면 추가 (워커에서 처리)
-        if presigned_url:
-            # 워커가 URL을 처리할 수 있도록 전달
-            job_input["base_voice_url"] = presigned_url
-        # run 메서드 사용 (비동기 요청)
-        result = await tts_manager.run(job_input)
-        
-        logger.info(f"RunPod 서버 응답: {result}")
-        
-        if not result:
-            logger.error("음성 생성 요청 실패: 응답이 없음")
-            raise HTTPException(status_code=500, detail="음성 생성에 실패했습니다")
-        
-        # RunPod는 항상 비동기로 처리됨
-        if result.get("id"):
-            runpod_task_id = result["id"]
-            logger.info(f"TTS 생성 작업 시작됨: runpod_task_id={runpod_task_id}, voice_id={voice_id}")
-            
-            # RunPod task_id 업데이트
-            generated_voice.task_id = runpod_task_id
+        result = await tts_manager.runsync(job_input)
+        output = (result or {}).get("output", {}) or {}
+        audio_b64 = output.get("audio_base64") or output.get("audio_data") or output.get("audio")
+
+        if not audio_b64:
+            generated_voice.status = "failed"
             db.commit()
-            
-            return {
-                "voice_id": voice_id,  # DB에서 생성된 ID
-                "task_id": runpod_task_id,  # RunPod task ID
-                "status": "pending",
-                "message": "TTS 생성 작업이 시작되었습니다. 잠시 후 음성이 생성됩니다.",
-                "text": request.text,
-                "created_at": generated_voice.created_at.isoformat()
-            }
-        
-        # 동기 작업인 경우 (즉시 s3_url 반환) - 기존 로직
-        elif result.get("s3_url"):
-            # 이미 생성된 레코드 업데이트
-            generated_voice.status = "completed"
-            generated_voice.s3_url = result["s3_url"]
-            generated_voice.s3_key = result.get("s3_key", "")
-            generated_voice.duration = result.get("duration")
-            generated_voice.file_size = result.get("file_size")
-            db.commit()
-            
-            return {
-                "voice_id": voice_id,
-                "s3_url": result["s3_url"],
-                "duration": result.get("duration"),
-                "text": request.text,
-                "status": "completed",
-                "created_at": generated_voice.created_at.isoformat()
-            }
-        else:
-            logger.error(f"예상치 못한 응답 형식: {result}")
-            raise HTTPException(status_code=500, detail="음성 생성에 실패했습니다")
-        
+            err = (result or {}).get("error", "응답에 오디오가 없음")
+            logger.error(f"음성 생성 실패: {err}")
+            raise HTTPException(status_code=500, detail=f"음성 생성에 실패했습니다: {err}")
+
+        # 로컬 저장: uploads/voices/{influencer}/generated/{voice_id}.wav (외부 볼륨)
+        audio_bytes = base64.b64decode(audio_b64)
+        rel_path = f"{request.influencer_id}/generated/{voice_id}.wav"
+        save_dir = os.path.join("uploads", "voices", request.influencer_id, "generated")
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, f"{voice_id}.wav")
+        with open(save_path, "wb") as f:
+            f.write(audio_bytes)
+        play_url = f"/api/v1/voices/{rel_path}"
+
+        generated_voice.status = "completed"
+        generated_voice.s3_url = play_url       # 프론트 재생 URL (StaticFiles 서빙)
+        generated_voice.s3_key = save_path      # 로컬 파일 경로 (삭제용)
+        generated_voice.duration = output.get("duration")
+        generated_voice.file_size = len(audio_bytes)
+        db.commit()
+
+        logger.info(f"✅ 음성 생성 완료: voice_id={voice_id}, {len(audio_bytes)} bytes -> {save_path}")
+        return {
+            "voice_id": voice_id,
+            "url": play_url,
+            "s3_url": play_url,
+            "status": "completed",
+            "duration": output.get("duration"),
+            "file_size": len(audio_bytes),
+            "text": request.text,
+            "created_at": generated_voice.created_at.isoformat(),
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
-        error_detail = traceback.format_exc()
         logger.error(f"음성 생성 실패: {str(e)}")
-        logger.error(f"상세 에러: {error_detail}")
-        
-        # 클라이언트에게는 간단한 메시지만 전달
-        error_message = str(e) if str(e) else "음성 생성 중 오류가 발생했습니다"
-        raise HTTPException(status_code=500, detail=error_message)
+        logger.error(f"상세 에러: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e) or "음성 생성 중 오류가 발생했습니다")
 
 
 

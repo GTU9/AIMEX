@@ -360,6 +360,16 @@ if settings.IMAGE_STORAGE_TYPE == "local":
         f"🗂️ 로컬 이미지 저장소 서빙: {settings.LOCAL_STORAGE_BASE_URL} -> {local_storage_dir}"
     )
 
+    # 음성 저장소 서빙 (베이스/생성 음성, 외부 볼륨 uploads/voices)
+    voices_dir = Path("uploads/voices")
+    voices_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/api/v1/voices",
+        StaticFiles(directory=str(voices_dir)),
+        name="local-voices",
+    )
+    logger.info(f"🗂️ 로컬 음성 저장소 서빙: /api/v1/voices -> {voices_dir}")
+
 # 버전 없는 라우터 추가 (하위 호환성)
 from app.api.v1.endpoints.auth import router as auth_router
 
