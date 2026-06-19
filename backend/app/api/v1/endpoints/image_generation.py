@@ -68,6 +68,8 @@ class ModalImageGenerationRequest(BaseModel):
     """Modal SDXL-Turbo 텍스트→이미지 생성 요청 (ComfyUI 비의존 경로)"""
     prompt: str
     negative_prompt: Optional[str] = None
+    selected_styles: Optional[Dict[str, str]] = {}  # 스타일 선택 정보(최적화 입력)
+    optimize: bool = True  # True면 OpenAI로 프롬프트 최적화 후 생성
     width: int = 512
     height: int = 512
     seed: Optional[int] = None
@@ -121,11 +123,28 @@ async def modal_generate_image(
         user = await _get_user_with_groups(user_id, db)
         team_id = user.teams[0].group_id if user and user.teams else 0
 
+        # 0. 프롬프트 최적화 (미리보기와 동일 경로 — OpenAI 실패 시 원본 사용)
+        optimized_prompt = request.prompt
+        optimization_method = "none"
+        if request.optimize:
+            try:
+                prompt_service = get_prompt_optimization_service()
+                optimized_prompt = await prompt_service.optimize_sdxl_prompt(
+                    user_prompt=request.prompt,
+                    selected_styles=request.selected_styles or {},
+                )
+                optimization_method = "openai_sdxl_optimization"
+                logger.info(f"🤖 프롬프트 최적화 적용 | 원본='{request.prompt[:40]}...' → 최적화='{optimized_prompt[:60]}...'")
+            except Exception as opt_err:
+                logger.warning(f"⚠️ 프롬프트 최적화 실패, 원본 사용: {opt_err}")
+                optimized_prompt = request.prompt
+                optimization_method = "fallback_original"
+
         # 1. Modal 호출
         from app.services.modal_manager import get_modal_image_manager
         manager = get_modal_image_manager()
         result = await manager.runsync({
-            "prompt": request.prompt,
+            "prompt": optimized_prompt,
             "negative_prompt": request.negative_prompt,
             "width": request.width,
             "height": request.height,
@@ -172,6 +191,9 @@ async def modal_generate_image(
                 "provider": "modal",
                 "num_inference_steps": request.num_inference_steps,
                 "guidance_scale": request.guidance_scale,
+                "optimized_prompt": optimized_prompt,
+                "optimization_method": optimization_method,
+                "selected_styles": request.selected_styles or {},
             },
             s3_url=save_path,
             file_size=len(image_data),

@@ -45,8 +45,8 @@ async def test_prompt_optimization(
     """
     프롬프트 최적화 테스트
     
-    ComfyUI 실행 없이 한국어 프롬프트 + 스타일 선택이 
-    어떻게 Flux.1-dev 최적화 영문 프롬프트로 변환되는지 확인
+    한국어 프롬프트 + 스타일 선택이 어떻게 SDXL-Turbo 최적화
+    영문 프롬프트로 변환되는지 미리 확인 (실제 생성과 동일 경로)
     """
     try:
         user_id = current_user.get("sub")
@@ -66,14 +66,14 @@ async def test_prompt_optimization(
         for category, keywords in style_keywords_dict.items():
             style_keywords_applied.extend(keywords.split(", "))
         
-        # 최적화 실행
+        # 최적화 실행 (실제 생성 모델 = SDXL-Turbo 와 동일 경로)
         try:
-            optimized_prompt = await prompt_service.optimize_flux_prompt(
+            optimized_prompt = await prompt_service.optimize_sdxl_prompt(
                 user_prompt=request.prompt,
                 selected_styles=request.selected_styles
             )
-            optimization_method = "openai_flux_optimization"
-            
+            optimization_method = "openai_sdxl_optimization"
+
         except Exception as optimization_error:
             logger.warning(f"⚠️ OpenAI 최적화 실패, 폴백 모드 사용: {optimization_error}")
             # 폴백 모드 시뮬레이션
@@ -90,7 +90,7 @@ async def test_prompt_optimization(
         character_count = len(optimized_prompt)
         
         if character_count <= 350 and estimated_tokens <= 77:
-            quality_message = "✅ Flux.1-dev에 최적화된 프롬프트입니다."
+            quality_message = "✅ SDXL-Turbo에 최적화된 프롬프트입니다."
         elif character_count > 350:
             quality_message = "⚠️ 프롬프트가 다소 긴 편입니다. 더 간결하게 조정을 권장합니다."
         else:

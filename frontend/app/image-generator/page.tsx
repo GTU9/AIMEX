@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
-import { RunPodService, type RunPodCredits } from "@/lib/services/runpod.service"
 import { Navigation } from "@/components/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useWebSocket } from "@/hooks/use-websocket"
@@ -387,10 +386,7 @@ export default function ImageGeneratorPage() {
     }
   })
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  
-  // RunPod 크레딧 상태
-  const [credits, setCredits] = useState<RunPodCredits | null>(null)
-  
+
   // 토큰 초기화
   useEffect(() => {
     const storedToken = tokenUtils.getToken()
@@ -398,39 +394,6 @@ export default function ImageGeneratorPage() {
       setAccessToken(storedToken)
     }
   }, [token])
-
-  // RunPod 크레딧 조회
-  useEffect(() => {
-    const fetchCredits = async () => {
-      try {
-        const creditsData = await RunPodService.getCredits()
-        setCredits(creditsData)
-      } catch (err) {
-        console.error('RunPod 크레딧 조회 실패:', err)
-        // API 오류 시 크레딧을 null로 설정하여 UI에서 적절히 처리
-        setCredits(null)
-        
-        // 사용자에게 친화적인 에러 메시지 표시
-        if (err instanceof Error) {
-          if (err.message.includes('503') || err.message.includes('Service Unavailable')) {
-            console.warn('RunPod API 연결 실패 - API 키 설정을 확인하세요')
-          } else if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-            console.warn('RunPod API 인증 실패 - 로그인이 필요합니다')
-          } else {
-            console.warn('RunPod 크레딧 조회 중 일시적인 오류가 발생했습니다')
-          }
-        }
-      }
-    }
-
-    if (accessToken) {
-      fetchCredits()
-      
-      // 5분마다 자동 새로고침
-      const interval = setInterval(fetchCredits, 5 * 60 * 1000)
-      return () => clearInterval(interval)
-    }
-  }, [accessToken])
 
   // WebSocket 연결은 useWebSocket 훅에서 관리됨
   // 수동 WebSocket 연결 코드 제거 (wsRef 미정의 오류 해결)
@@ -454,7 +417,14 @@ export default function ImageGeneratorPage() {
   const [showGalleryImageModal, setShowGalleryImageModal] = useState(false) // 갤러리용 모달
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [downloadFileName, setDownloadFileName] = useState("")
-  
+
+  // AI 프롬프트 미리보기 (모달)
+  const [promptPreview, setPromptPreview] = useState<any | null>(null)
+  const [showPromptPreview, setShowPromptPreview] = useState(false)
+  const [promptPreviewLoading, setPromptPreviewLoading] = useState(false)
+  // 미리보기에서 "적용"한 최적화 프롬프트를 그대로 쓸지 여부(true면 생성 시 서버 재최적화 생략)
+  const [skipOptimize, setSkipOptimize] = useState(false)
+
   // 갤러리에서 이미지 선택
   const [showGallerySelector, setShowGallerySelector] = useState(false)
   
@@ -683,6 +653,10 @@ export default function ImageGeneratorPage() {
         return
       }
 
+      setPromptPreviewLoading(true)
+      setPromptPreview(null)
+      setShowPromptPreview(true)
+
       const testResponse = await fetch('/api/prompt-test/test-prompt', {
         method: 'POST',
         headers: {
@@ -696,49 +670,41 @@ export default function ImageGeneratorPage() {
       })
 
       const testData = await testResponse.json()
-      
+
       if (testData.success) {
-        // 결과를 알림으로 표시
-        const resultMessage = `
-📝 원본 프롬프트:
-${testData.original_prompt}
-
-🎨 선택된 스타일:
-${JSON.stringify(testData.selected_styles, null, 2)}
-
-🤖 최적화된 프롬프트:
-${testData.optimized_prompt}
-
-📊 통계:
-- 길이: ${testData.character_count} 문자
-- 추정 토큰: ${testData.estimated_tokens}
-- 최적화 방법: ${testData.optimization_method}
-
-${testData.message}
-        `
-        
-        toast({
-          title: "프롬프트 최적화 테스트 완료",
-          description: resultMessage,
-          duration: 3000,
-        })
-        
-        // 콘솔에도 상세 정보 출력
-        // 프롬프트 최적화 테스트 완료
+        // 결과를 모달로 표시
+        setPromptPreview(testData)
       } else {
+        setShowPromptPreview(false)
         toast({
           title: "프롬프트 테스트 실패",
-          description: testData.detail || '알 수 없는 오류',
+          description: testData.detail || testData.message || '알 수 없는 오류',
           variant: "destructive",
           duration: 3000,
         })
       }
     } catch (error) {
-      // Prompt test failed
+      setShowPromptPreview(false)
       toast({
         title: "오류 발생",
         description: '프롬프트 테스트 중 오류가 발생했습니다.',
         variant: "destructive",
+        duration: 3000,
+      })
+    } finally {
+      setPromptPreviewLoading(false)
+    }
+  }
+
+  // 미리보기의 최적화 프롬프트를 입력란에 적용 (해당 생성 건은 서버 재최적화 생략)
+  const applyOptimizedPrompt = () => {
+    if (promptPreview?.optimized_prompt) {
+      setPrompt(promptPreview.optimized_prompt)
+      setSkipOptimize(true)
+      setShowPromptPreview(false)
+      toast({
+        title: "프롬프트 적용 완료",
+        description: '최적화된 프롬프트가 입력란에 적용되었습니다. 이 상태로 생성하면 그대로 사용됩니다.',
         duration: 3000,
       })
     }
@@ -818,8 +784,21 @@ ${testData.message}
     try {
       // Modal(SDXL-Turbo) REST 엔드포인트로 생성 요청 (ComfyUI WebSocket 대체)
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+      // skipOptimize=true(미리보기 적용): 입력란의 최적화 프롬프트를 그대로 사용
+      // 그 외: 미리보기와 동일하게 원본 프롬프트 + 선택 스타일을 서버에서 최적화
+      const genPayload = skipOptimize
+        ? {
+            prompt: prompt.trim(),
+            selected_styles: {},
+            optimize: false,
+          }
+        : {
+            prompt: prompt.trim() || getCombinedPromptKeywords(),
+            selected_styles: getSelectedStylesForAPI(),
+            optimize: true,
+          }
       const resp: any = await apiClient.post('/api/v1/image-generation/modal-generate', {
-        prompt: fullPrompt,
+        ...genPayload,
         width: selectedSizeData?.width || 512,
         height: selectedSizeData?.height || 512,
         num_inference_steps: 2,
@@ -843,6 +822,7 @@ ${testData.message}
         setPreviewImage(newImage)
         setShowImageModal(true)
         setPrompt("")
+        setSkipOptimize(false)
       } else {
         toast({
           title: "이미지 생성 실패",
@@ -1611,7 +1591,7 @@ ${testData.message}
             <div className="flex justify-between items-start">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">이미지 생성 & 수정</h1>
-                <p className="text-gray-600 mt-2">ComfyUI를 사용하여 AI 이미지를 생성하고 수정하세요</p>
+                <p className="text-gray-600 mt-2">AI로 이미지를 생성하고 수정하세요</p>
               </div>
               {/* 상단 우측 정보 영역 */}
               <div className="flex flex-col space-y-2">
@@ -1623,13 +1603,6 @@ ${testData.message}
                   </span>
                 </div>
                 
-                {/* RunPod 크레딧 표시 */}
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium text-gray-600">남은 크레딧 : </span>
-                  <span className="text-sm font-medium text-gray-600">
-                    {credits ? `${credits.remaining_credits.toFixed(2)} $` : '로딩 중...'}
-                  </span>
-                </div>
               </div>
             </div>
           </div>
@@ -1677,129 +1650,6 @@ ${testData.message}
                 {/* 이미지 생성 탭 */}
                 {activeTab === "generate" && (
                   <div className="space-y-6">
-                  {/* 세션 상태 카드 */}
-                  {(sessionStatus && sessionStatus.pod_id && sessionStatus.pod_status !== 'none') ? (
-                    <Card className={`border-2 ${
-                      sessionStatus.pod_status === 'ready' || sessionStatus.pod_status === 'running' ? 'border-blue-300' : 
-                      sessionStatus.pod_status === 'starting' ? 'border-gray-200' :
-                      sessionStatus.pod_status === 'processing' ? 'border-blue-500' :
-                      sessionStatus.pod_status === 'failed' ? 'border-red-500' :
-                      'border-gray-200'
-                    }`}>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${
-                            sessionStatus.pod_status === 'ready' || sessionStatus.pod_status === 'running' ? 'bg-blue-300 animate-pulse' :
-                            sessionStatus.pod_status === 'starting' ? 'bg-gray-400 animate-pulse' :
-                            sessionStatus.pod_status === 'processing' ? 'bg-blue-500 animate-pulse' :
-                            sessionStatus.pod_status === 'failed' ? 'bg-red-500' :
-                            'bg-gray-400'
-                          }`} />
-                          런팟 세션 상태
-                          {sessionLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm mb-2">
-                          {sessionStatus?.pod_status === 'ready' || sessionStatus?.pod_status === 'running' ? '✅ 세션이 활성 상태입니다' :
-                           sessionStatus?.pod_status === 'starting' ? '🚀 세션을 시작하고 있습니다...' :
-                           sessionStatus?.pod_status === 'processing' ? '🎨 이미지를 생성하고 있습니다...' :
-                           sessionStatus?.pod_status === 'failed' ? '❌ 세션 시작에 실패했습니다' :
-                           sessionStatus?.pod_status === 'none' || !sessionStatus?.pod_id ? '🔄 세션이 없습니다' :
-                           '🔍 세션 상태를 확인하고 있습니다...'}
-                        </p>
-                        {clientSessionTime !== null && clientSessionTime > 0 && (
-                          <p className="text-xs text-gray-600">
-                            세션 시간: {Math.floor(clientSessionTime / 60)}분 {clientSessionTime % 60}초
-                          </p>
-                        )}
-                        {clientProcessingTime !== null && clientProcessingTime > 0 && (
-                          <p className="text-xs text-gray-600">
-                            처리 시간: {Math.floor(clientProcessingTime / 60)}분 {clientProcessingTime % 60}초
-                          </p>
-                        )}
-                        
-                        {/* 세션 시간이 만료되거나 실패한 경우 재시작 버튼 표시 (생성 중이 아닐 때만) */}
-                        {(sessionStatus.pod_status === 'failed' || (clientSessionTime !== null && clientSessionTime <= 0)) && 
-                         sessionStatus.pod_status !== 'starting' && (
-                          <Button 
-                            onClick={handleCreateSession} 
-                            className="mt-2" 
-                            size="sm"
-                            disabled={sessionLoading}
-                            variant="outline"
-                          >
-                            {sessionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                            세션 재시작
-                          </Button>
-                        )}
-                        
-                        {/* Pod 생성 중 메시지 표시 */}
-                        {sessionStatus.pod_status === 'starting' && (
-                          <div className="flex items-center text-xs text-blue-600 mt-2">
-                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                            Pod 생성 중... 잠시만 기다려주세요.
-                          </div>
-                        )}
-                        
-                        {/* 세션 시간이 만료된 경우 안내 메시지 표시 */}
-                        {clientSessionTime !== null && clientSessionTime <= 0 && sessionStatus.pod_status !== 'failed' && sessionStatus.pod_status !== 'starting' && (
-                          <p className="text-xs text-orange-600 mt-2">
-                            ⏰ 세션 시간이 만료되었습니다. 새로운 세션을 시작해주세요.
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    /* 세션이 없는 경우 새 세션 생성 안내 카드 */
-                    <Card className="border-2 border-gray-300">
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full bg-gray-500" />
-                          런팟 세션 상태
-                          {sessionLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm mb-2 text-gray-600">🔄 세션이 만료되었습니다</p>
-                        <p className="text-xs text-gray-500 mb-4">
-                          AI 이미지 생성을 위해 새로운 RunPod 세션을 시작해주세요.
-                        </p>
-                        <Button 
-                          onClick={handleCreateSession} 
-                          size="default"
-                          disabled={sessionLoading || isAutoRetrying}
-                          variant="default"
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3"
-                        >
-                          {sessionLoading ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              세션 생성 중...
-                            </>
-                          ) : isAutoRetrying ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              자동 재시도 중... ({sessionRetryCount}/3)
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="h-4 w-4 mr-2" />
-                              새 세션 시작하기
-                            </>
-                          )}
-                        </Button>
-                        
-                        {/* 자동 재시도 안내 메시지 */}
-                        {isAutoRetrying && sessionRetryCount > 0 && (
-                          <p className="text-xs text-blue-600 mt-2 text-center">
-                            🔄 연결 실패 시 자동으로 재시도합니다 ({sessionRetryCount}/3)
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  )}
-                  
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
@@ -2067,7 +1917,7 @@ ${testData.message}
                                       id="prompt"
                                       placeholder="생성하고 싶은 이미지를 자세히 설명해주세요..."
                                       value={prompt}
-                                      onChange={(e) => setPrompt(e.target.value)}
+                                      onChange={(e) => { setPrompt(e.target.value); if (skipOptimize) setSkipOptimize(false) }}
                                       className="min-h-[100px]"
                                     />
                                   </div>
@@ -2801,6 +2651,85 @@ ${testData.message}
             </Card>
           </div>
         </div>
+
+        {/* AI 프롬프트 미리보기 모달 */}
+        <Dialog open={showPromptPreview} onOpenChange={setShowPromptPreview}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-blue-600" />
+                AI 프롬프트 미리보기 (SDXL-Turbo)
+              </DialogTitle>
+            </DialogHeader>
+
+            {promptPreviewLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                <p className="text-sm">OpenAI로 프롬프트를 최적화하는 중...</p>
+              </div>
+            ) : promptPreview ? (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-xs text-gray-500">원본 프롬프트</Label>
+                  <p className="mt-1 text-sm bg-gray-50 rounded-md p-3 whitespace-pre-wrap">
+                    {promptPreview.original_prompt || "-"}
+                  </p>
+                </div>
+
+                {promptPreview.selected_styles && Object.keys(promptPreview.selected_styles).length > 0 && (
+                  <div>
+                    <Label className="text-xs text-gray-500">선택된 스타일</Label>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {Object.entries(promptPreview.selected_styles).map(([k, v]) => (
+                        <span key={k} className="text-xs bg-blue-50 text-blue-700 rounded px-2 py-0.5">
+                          {k}: {String(v)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-xs text-gray-500">🤖 최적화된 프롬프트 (영문)</Label>
+                  <Textarea
+                    readOnly
+                    value={promptPreview.optimized_prompt || ""}
+                    className="mt-1 min-h-[110px] text-sm font-mono bg-blue-50/40"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+                  <span>길이: <b>{promptPreview.character_count}</b>자</span>
+                  <span>추정 토큰: <b>{promptPreview.estimated_tokens}</b></span>
+                  <span>방법: <b>{promptPreview.optimization_method}</b></span>
+                </div>
+                {promptPreview.message && (
+                  <p className="text-sm text-gray-700">{promptPreview.message}</p>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(promptPreview.optimized_prompt || "")
+                      toast({ title: "복사됨", description: "최적화된 프롬프트를 클립보드에 복사했습니다.", duration: 2000 })
+                    }}
+                  >
+                    복사
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={applyOptimizedPrompt}
+                  >
+                    이 프롬프트로 적용
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
 
         {/* 이미지 모달 */}
         <Dialog open={showImageModal} onOpenChange={setShowImageModal}>

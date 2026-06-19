@@ -114,6 +114,112 @@ class PromptOptimizationService:
             # 실패 시 기본 프롬프트 반환
             return self._flux_fallback_prompt(user_prompt, selected_styles or {})
 
+    async def optimize_sdxl_prompt(
+        self,
+        user_prompt: str,
+        selected_styles: Optional[Dict[str, str]] = None
+    ) -> str:
+        """SDXL-Turbo용 프롬프트 최적화 (실제 생성 모델 = stabilityai/sdxl-turbo)."""
+        try:
+            logger.info(f"🔄 SDXL 프롬프트 최적화 시작: '{user_prompt[:50]}...'")
+            logger.info(f"📝 선택된 스타일: {selected_styles}")
+
+            # 스타일(한국어 선택값) → 영문 키워드 사전
+            style_keywords = self._collect_flux_style_keywords(selected_styles or {})
+
+            optimized_prompt = await self._optimize_sdxl_with_openai(user_prompt, style_keywords)
+            final_prompt = self._build_sdxl_final_prompt(optimized_prompt, style_keywords)
+
+            logger.info(f"✅ SDXL 프롬프트 최적화 완료: '{final_prompt[:50]}...'")
+            return final_prompt
+        except Exception as e:
+            logger.error(f"❌ SDXL 프롬프트 최적화 실패: {e}")
+            return self._flux_fallback_prompt(user_prompt, selected_styles or {})
+
+    async def _optimize_sdxl_with_openai(
+        self,
+        user_prompt: str,
+        style_keywords: Dict[str, str]
+    ) -> str:
+        """OpenAI를 통한 SDXL-Turbo 전용 프롬프트 최적화"""
+
+        system_prompt = """
+You are an expert prompt engineer specialized in SDXL-Turbo for fast text-to-image generation.
+
+IMPORTANT: You are optimizing prompts specifically for SDXL-Turbo (stabilityai/sdxl-turbo):
+- Distilled, ultra-fast model running in 1-4 steps with guidance scale ~0
+- Best with concise, information-dense prompts (aim for 40-60 tokens, keep under ~75)
+- Prefers comma-separated visual descriptors and quality boosters over long flowing sentences
+- Responds strongly to concrete nouns, materials, lighting and explicit style/quality tags
+
+SDXL-Turbo Optimization Guidelines:
+1. Translate Korean to English
+2. Lead with the main subject, then key visual descriptors, style, lighting, then quality tags
+3. Use comma-separated tag-like phrases (not long narrative sentences)
+4. Add concise quality boosters such as "highly detailed, sharp focus, high quality"
+5. Avoid redundancy and filler words; keep it dense and concrete
+6. Keep total length around 40-60 tokens for best Turbo results
+
+Good SDXL-Turbo prompt examples:
+- "portrait of a woman, soft natural light, shallow depth of field, highly detailed, sharp focus"
+- "futuristic city skyline at night, neon lights, reflections, cinematic, highly detailed, 8k"
+
+Style context will be provided - integrate it naturally as comma-separated tags.
+
+Return ONLY the optimized English prompt for SDXL-Turbo, no explanations or quotes.
+"""
+
+        style_context = ""
+        if style_keywords:
+            style_list = [f"{cat}: {keywords}" for cat, keywords in style_keywords.items()]
+            style_context = f"\n\nStyle context: {' | '.join(style_list)}"
+
+        user_message = (
+            f"Optimize this prompt specifically for SDXL-Turbo model: '{user_prompt}'"
+            f"{style_context}\n\nRemember: SDXL-Turbo prefers concise, comma-separated visual "
+            f"descriptors with quality boosters. Keep it dense and under ~75 tokens."
+        )
+
+        try:
+            response = openai_client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                max_tokens=120,
+                temperature=0.3,
+                timeout=30.0,
+            )
+            optimized = response.choices[0].message.content.strip().strip('"').strip("'")
+            logger.debug(f"🤖 OpenAI SDXL 최적화 결과: '{optimized}'")
+            return optimized
+        except Exception as e:
+            logger.error(f"❌ OpenAI API 호출 실패(SDXL): {e}")
+            raise
+
+    def _build_sdxl_final_prompt(self, optimized_prompt: str, style_keywords: Dict[str, str]) -> str:
+        """SDXL용 최종 프롬프트 구성 (스타일 키워드 + 간결한 품질 부스터)"""
+        parts = [optimized_prompt]
+        existing = optimized_prompt.lower()
+
+        # 스타일 키워드(영문) 중 미포함분만 추가
+        for keywords in style_keywords.values():
+            unique = [k for k in keywords.split(", ") if k.lower() not in existing]
+            if unique:
+                parts.append(", ".join(unique))
+
+        # SDXL 품질 부스터(중복 없을 때만, 최대 2개)
+        boosters = [b for b in ["highly detailed", "sharp focus", "high quality"]
+                    if b not in existing and not (b == "high quality" and "quality" in existing)]
+        if boosters:
+            parts.append(", ".join(boosters[:2]))
+
+        final_prompt = ", ".join(parts)
+        if len(final_prompt) > 320:
+            final_prompt = final_prompt[:317] + "..."
+        return final_prompt
+
     async def _optimize_with_openai(
         self, request: PromptOptimizationRequest
     ) -> PromptOptimizationResponse:
