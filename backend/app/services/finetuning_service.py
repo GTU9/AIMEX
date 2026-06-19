@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.services.s3_service import get_s3_service
-from app.services.runpod_finetuning_client import RunPodFineTuningClient
 from app.core.encryption import decrypt_sensitive_data
 from app.services.hf_token_resolver import get_token_for_influencer
 from app.core.config import settings
@@ -69,7 +68,6 @@ class InfluencerFineTuningService:
     def __init__(self):
         """파인튜닝 서비스 초기화"""
         self.s3_service = get_s3_service()
-        self.runpod_client = RunPodFineTuningClient()
         self.tasks: Dict[str, FineTuningTask] = {}
 
         # 파인튜닝 베이스 모델 (env 로 제어).
@@ -473,63 +471,19 @@ class InfluencerFineTuningService:
             RunPod job_id (성공 시), None (실패 시)
         """
         try:
-            logger.info(f"파인튜닝 시작: {hf_repo_id}")
-
-            # GPU provider 분기: Modal 이면 Modal 파인튜닝 워커로 위임
-            from app.core.config import settings
-            if getattr(settings, "GPU_PROVIDER", "runpod") == "modal":
-                return await self._run_finetuning_modal(
-                    qa_data=qa_data,
-                    system_message=system_message or system_prompt,
-                    hf_repo_id=hf_repo_id,
-                    hf_token=hf_token,
-                    epochs=epochs,
-                    influencer_id=influencer_id,
-                )
-
-            # RunPod 엔드포인트 확인
-            endpoint_id = await self.runpod_client.find_or_create_endpoint()
-            logger.info(f"🔍 RunPod 엔드포인트 확인: {endpoint_id}")
-
-            # RunPod Serverless로 파인튜닝 요청
-            logger.info(f"🚀 RunPod Serverless로 파인튜닝 요청: {hf_repo_id}")
-            
-            logger.info(f"📋 RunPod 파인튜닝 요청 파라미터:")
-            logger.info(f"  - task_id: {task_id or f'ft_{influencer_id}_{int(time.time())}'}")
-            logger.info(f"  - qa_data 개수: {len(qa_data)}")
-            logger.info(f"  - system_message 길이: {len(system_message or system_prompt or '')}")
-            logger.info(f"  - hf_repo_id: {hf_repo_id}")
-            logger.info(f"  - training_epochs: {epochs}")
-            logger.info(f"  - influencer_id: {influencer_id}")
-            
-            result = await self.runpod_client.start_finetuning(
-                task_id=task_id or f"ft_{influencer_id}_{int(time.time())}",
+            logger.info(f"파인튜닝 시작(Modal): {hf_repo_id}")
+            # Modal 전용 운영 — 항상 Modal 파인튜닝 워커로 위임
+            return await self._run_finetuning_modal(
                 qa_data=qa_data,
                 system_message=system_message or system_prompt,
-                hf_token=hf_token,
                 hf_repo_id=hf_repo_id,
-                training_epochs=epochs,
-                influencer_id=influencer_id
+                hf_token=hf_token,
+                epochs=epochs,
+                influencer_id=influencer_id,
             )
 
-            logger.info(f"📊 RunPod 응답: {result}")
-            
-            if result.get("success"):
-                runpod_job_id = result.get("job_id")
-                if runpod_job_id:
-                    logger.info(f"✅ RunPod 파인튜닝 작업 제출 완료: job_id={runpod_job_id}")
-                    return runpod_job_id
-                else:
-                    error_msg = f"RunPod 응답에 job_id가 없음: {result}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
-            else:
-                error_msg = f"RunPod 파인튜닝 작업 시작 실패: {result.get('error', 'Unknown error')}"
-                logger.error(error_msg)
-                raise Exception(error_msg)
-
         except Exception as e:
-            logger.error(f"RunPod 파인튜닝 실행 중 오류: {e}")
+            logger.error(f"파인튜닝 실행 중 오류: {e}")
             return None
 
     async def _run_finetuning_modal(
