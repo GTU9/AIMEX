@@ -110,9 +110,9 @@ class Settings(BaseSettings):
     RUNPOD_EXISTING_ENDPOINT: str = os.getenv("RUNPOD_EXISTING_ENDPOINT", "")
     RUNPOD_EXISTING_POD_ID: str = os.getenv("RUNPOD_EXISTING_POD_ID", "")
 
-    # GPU 추론 provider 설정 (runpod | modal)
-    # GPU_PROVIDER == "modal" 이면 Modal 서버리스 GPU 매니저 사용, 그 외에는 RunPod 사용
-    GPU_PROVIDER: str = os.getenv("GPU_PROVIDER", "runpod")  # "runpod" | "modal"
+    # GPU provider 설정 — 본 프로젝트는 Modal 전용. 기본값 modal로 고정한다.
+    # (RunPod 경로는 레거시 폴백으로만 남아 있으며 평상시 사용되지 않음)
+    GPU_PROVIDER: str = os.getenv("GPU_PROVIDER", "modal")  # "modal" | "runpod"(legacy)
     # 예: https://ws--aimex-generation-generate.modal.run
     MODAL_GENERATION_URL: Optional[str] = os.getenv("MODAL_GENERATION_URL")
     MODAL_TTS_URL: Optional[str] = os.getenv("MODAL_TTS_URL")
