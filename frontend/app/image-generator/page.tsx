@@ -801,7 +801,7 @@ export default function ImageGeneratorPage() {
         ...genPayload,
         width: selectedSizeData?.width || 512,
         height: selectedSizeData?.height || 512,
-        num_inference_steps: 2,
+        num_inference_steps: 4, // SDXL-Turbo 권장 범위(1~4)의 최댓값 — 프롬프트 반영도·디테일 향상
         guidance_scale: 0.0,
       }, { timeout: 300000 })
 
