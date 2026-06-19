@@ -39,10 +39,13 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # 이미지/음성 저장용 외부 볼륨 마운트 (IMAGE_STORAGE_TYPE=local)
+      # 생성물 전체(이미지/음성/RAG 문서) 외부 볼륨 마운트 (IMAGE_STORAGE_TYPE=local)
+      #   /app/uploads/images    - 생성 이미지
+      #   /app/uploads/voices    - 베이스/생성 음성
+      #   /app/uploads/documents - RAG 원본 문서
       # 배포 시 NAS 호스트 경로로 교체 가능:
-      #   - /volume1/aimex/uploads:/app/uploads/images
-      - uploads_data:/app/uploads/images
+      #   - /volume1/aimex/uploads:/app/uploads
+      - uploads_data:/app/uploads
     # 빈 DB 대비: 마이그레이션 선행 후 기동.
     command: >
       sh -c "alembic upgrade head &&
