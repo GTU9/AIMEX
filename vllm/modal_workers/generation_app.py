@@ -76,7 +76,7 @@ volume = modal.Volume.from_name("aimex-models", create_if_missing=True)
     gpu="A10G",
     image=image,
     volumes={MODELS_DIR: volume},
-    scaledown_window=60,   # 마지막 요청 후 60초 유지 → scale-to-zero
+    scaledown_window=300,  # 마지막 요청 후 5분 유지 → 7B 콜드스타트(가중치 재로딩) 빈도 감소
     timeout=600,
     max_containers=2,
 )
