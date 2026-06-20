@@ -180,7 +180,7 @@ class RAGVectorStore:
     async def store_qa_data(
         self, qa_data: List[Dict], source_file: str = "document.pdf"
     ) -> bool:
-        """QA 데이터를 vLLM 서버의 Milvus 벡터DB에 저장"""
+        """QA 데이터를 Chroma 임베디드 벡터DB에 저장"""
         try:
             logger.info(f"💾 vLLM 서버 벡터DB 저장 시작: {len(qa_data)}개")
 
@@ -246,7 +246,7 @@ class RAGVectorStore:
     async def search_similar(
         self, query: str, top_k: int = 5, score_threshold: float = None
     ) -> List[Dict]:
-        """vLLM 서버의 Milvus 벡터DB에서 유사한 문서 검색"""
+        """Chroma 임베디드 벡터DB에서 유사한 문서 검색"""
         try:
             import httpx
 

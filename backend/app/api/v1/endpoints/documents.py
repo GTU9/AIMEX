@@ -198,7 +198,7 @@ async def _extract_chunks(path: str, proc) -> list:
 
 @router.post("/{documents_id}/vectorize")
 async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
-    """문서를 청킹→임베딩(Modal)→Milvus 저장하여 RAG 검색 가능 상태로 만든다."""
+    """문서를 청킹→임베딩(Modal)→Chroma 저장하여 RAG 검색 가능 상태로 만든다."""
     from app.services.rag_service import RAGDocumentProcessor, RAGConfig
     from app.services.embedding_client import embed_texts
     from app.services.rag_vector_store import get_vector_store
@@ -235,7 +235,7 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
 
 
 async def _rebuild_influencer_vectors(influencer_id: str, db: Session) -> dict:
-    """해당 인플루언서의 현재 저장된 모든 문서로 Milvus 벡터를 재구축한다.
+    """해당 인플루언서의 현재 저장된 모든 문서로 Chroma 벡터를 재구축한다.
 
     매 호출마다 인플루언서 벡터를 전부 비우고 현재 문서 전체로 다시 쌓는다.
     문서가 없으면(또는 텍스트가 없으면) 기존 벡터만 삭제 → 고아 벡터가 남지 않는다.
@@ -318,7 +318,7 @@ async def _rebuild_influencer_vectors(influencer_id: str, db: Session) -> dict:
 
 @router.post("/by-influencer/{influencer_id}/vectorize")
 async def vectorize_influencer_documents(influencer_id: str, db: Session = Depends(get_db)):
-    """해당 인플루언서의 저장된 '모든' 문서를 청킹→임베딩→Milvus에 일괄 재구축한다.
+    """해당 인플루언서의 저장된 '모든' 문서를 청킹→임베딩→Chroma에 일괄 재구축한다.
 
     업로드는 저장만 하고, 임베딩은 이 버튼(엔드포인트)으로 한 번에 수행한다.
     """
@@ -635,7 +635,7 @@ async def delete_document(
         if not success:
             raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다.")
 
-        # 벡터화됐던 문서라면 Milvus 벡터를 남은 문서 기준으로 동기화 (best-effort)
+        # 벡터화됐던 문서라면 Chroma 벡터를 남은 문서 기준으로 동기화 (best-effort)
         rebuilt = None
         if influencer_id and was_vectorized:
             try:

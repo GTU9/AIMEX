@@ -390,7 +390,7 @@ async def delete_influencer(db: Session, user_id: str, influencer_id: str):
     for doc in db.query(Documents).filter(Documents.influencer_id == influencer_id).all():
         local_files.append(doc.file_path)
 
-    # 2. Milvus 벡터 삭제 (best-effort — 실패해도 삭제 진행)
+    # 2. Chroma 벡터 삭제 (best-effort — 실패해도 삭제 진행)
     try:
         from app.services.rag_vector_store import get_vector_store
 

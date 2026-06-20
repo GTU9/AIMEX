@@ -916,7 +916,7 @@ async def chatbot(
 async def build_rag_context(influencer_id: str, query: str) -> tuple[str, list]:
     """인플루언서의 벡터화 문서에서 query 관련 컨텍스트를 검색.
 
-    반환: (context_str, sources). Milvus/임베딩 실패 또는 0건이면 ('', []) 로
+    반환: (context_str, sources). Chroma/임베딩 실패 또는 0건이면 ('', []) 로
     graceful 폴백하여 챗봇이 절대 중단되지 않게 한다.
     """
     if not influencer_id or not query:

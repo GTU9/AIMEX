@@ -150,7 +150,7 @@ async def upload_document_gpu(
                     status_code=500, detail="QA 쌍 생성에 실패했습니다."
                 )
 
-            # vLLM 서버의 Milvus 벡터DB에 저장
+            # Chroma 임베디드 벡터DB에 저장
             source_file = file.filename
             logger.info("💾 vLLM 서버 벡터DB 저장 시작")
 
@@ -279,7 +279,7 @@ async def upload_document_gpu(
 
             return DocumentUploadResponse(
                 status="success",
-                message=f"벡터DB가 초기화되고 문서가 vLLM 서버의 Milvus 벡터DB에 성공적으로 업로드되었습니다.",
+                message=f"벡터DB가 초기화되고 문서가 Chroma 임베디드 벡터DB에 성공적으로 업로드되었습니다.",
                 pipeline_info={"qa_count": len(qa_pairs), "source_file": source_file},
             )
 
@@ -530,7 +530,7 @@ async def embed_and_search(
 
 @router.get("/vector_stats", response_model=VectorStatsResponse)
 async def get_vector_stats():
-    """vLLM 서버의 Milvus 벡터DB 통계 및 상태 확인"""
+    """Chroma 임베디드 벡터DB 통계 및 상태 확인"""
     try:
         import httpx
 
@@ -547,7 +547,7 @@ async def get_vector_stats():
                 stats = {
                     "total_chunks": vllm_stats.get("num_entities", 0),
                     "embedding_dimension": 1024,  # BGE-M3 기본 차원
-                    "device": "vllm_milvus",
+                    "device": "chroma",
                     "collection_name": vllm_stats.get(
                         "collection_name", "rag_documents"
                     ),
@@ -557,7 +557,7 @@ async def get_vector_stats():
                     "status": (
                         "healthy" if vllm_stats.get("num_entities", 0) > 0 else "empty"
                     ),
-                    "device": "vllm_milvus",
+                    "device": "chroma",
                     "total_chunks": vllm_stats.get("num_entities", 0),
                     "embedding_model_loaded": True,
                 }
@@ -576,7 +576,7 @@ async def get_vector_stats():
 
 @router.delete("/clear_vector_store")
 async def clear_vector_store():
-    """vLLM 서버의 Milvus 벡터DB 초기화"""
+    """Chroma 임베디드 벡터DB 초기화"""
     try:
         import httpx
 
