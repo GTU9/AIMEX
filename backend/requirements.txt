@@ -12,9 +12,8 @@ PyMySQL==1.1.0
 aiomysql==0.2.0
 greenlet==3.2.3
 
-# RAG (벡터DB 클라이언트)
-pymilvus==2.4.9
-setuptools<81  # pymilvus 가 pkg_resources 사용
+# RAG (임베디드 벡터DB)
+chromadb>=0.5.0  # 서버리스 — uploads/vectors 에 로컬 영속화 (Docker 불필요)
 
 # MCP 도구 연동 (웹검색 등) — starlette 는 위 0.27.0 핀 유지 필요(FastAPI 0.104 호환)
 langchain-mcp-adapters==0.3.0

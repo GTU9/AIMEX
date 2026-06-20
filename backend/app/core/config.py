@@ -127,7 +127,10 @@ class Settings(BaseSettings):
     # RAG 설정
     # 임베딩: Modal bge-m3 엔드포인트(POST /embed)
     MODAL_EMBEDDING_URL: Optional[str] = os.getenv("MODAL_EMBEDDING_URL")
-    # 벡터DB: Milvus. Docker standalone(http://host:19530). 데이터는 로컬 바인드마운트 볼륨에 저장.
+    # 벡터DB: Chroma(임베디드). 별도 서버/Docker 없이 로컬 파일에 영속화.
+    # 위치는 업로드 저장소 계열(uploads/vectors).
+    VECTOR_DB_PATH: str = os.getenv("VECTOR_DB_PATH", "uploads/vectors")
+    # (구) Milvus 설정 — Chroma 전환 후 미사용. 하위호환 위해 보존.
     MILVUS_URI: str = os.getenv("MILVUS_URI", "http://localhost:19530")
     MILVUS_TOKEN: Optional[str] = os.getenv("MILVUS_TOKEN")
     RAG_TOP_K: int = int(os.getenv("RAG_TOP_K", "4"))
