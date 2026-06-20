@@ -303,26 +303,24 @@ async def get_board(
         # 인플루언서 프로필 이미지 URL 처리
         influencer_image_url = None
         if influencer and influencer.image_url:
-            if not influencer.image_url.startswith("http"):
-                # S3 키인 경우 presigned URL 생성
+            if influencer.image_url.startswith("http") or influencer.image_url.startswith("/"):
+                # 완전한 URL 또는 로컬 정적 경로는 그대로 사용
+                influencer_image_url = influencer.image_url
+            else:
+                # (구) S3 키인 경우에만 presigned URL 생성
                 try:
                     from app.services.s3_image_service import get_s3_image_service
 
                     s3_service = get_s3_image_service()
                     if s3_service.is_available():
-                        # presigned URL 생성 (1시간 유효)
                         influencer_image_url = s3_service.generate_presigned_url(
                             influencer.image_url, expiration=3600
                         )
                     else:
-                        # S3 서비스가 사용 불가능한 경우 직접 URL 생성
                         influencer_image_url = f"https://aimex-influencers.s3.ap-northeast-2.amazonaws.com/{influencer.image_url}"
                 except Exception as e:
                     logger.error(f"Failed to generate presigned URL for influencer image: {e}")
                     influencer_image_url = f"https://aimex-influencers.s3.ap-northeast-2.amazonaws.com/{influencer.image_url}"
-            else:
-                # 이미 HTTP URL인 경우 그대로 사용
-                influencer_image_url = influencer.image_url
 
         # Instagram 링크는 동적으로 생성 (데이터베이스에 저장하지 않음)
         # 이미지 URL을 S3 presigned URL로 변환 (상세보기에서는 전체 이미지)
@@ -334,30 +332,24 @@ async def get_board(
 
             for single_image_url in image_urls:
                 single_image_url = single_image_url.strip()
-                if not single_image_url.startswith("http"):
-                    # S3 키인 경우 presigned URL 생성
+                if single_image_url.startswith("http") or single_image_url.startswith("/"):
+                    # 완전한 HTTP URL 또는 로컬 정적 경로(/api/v1/images/...)는 그대로 사용
+                    processed_url = single_image_url
+                else:
+                    # (구) S3 키인 경우에만 presigned URL 생성
                     try:
                         from app.services.s3_image_service import get_s3_image_service
 
                         s3_service = get_s3_image_service()
                         if s3_service.is_available():
-                            # 상세보기에서는 전체 이미지용 presigned URL 생성 (1시간 유효)
                             processed_url = s3_service.generate_presigned_url(
                                 single_image_url, expiration=3600
                             )
-                            logger.info(f"Generated presigned URL for image: {processed_url}")
                         else:
-                            # S3 서비스가 사용 불가능한 경우 직접 URL 생성
                             processed_url = f"https://aimex-influencers.s3.ap-northeast-2.amazonaws.com/{single_image_url}"
-                            logger.warning("S3 service unavailable, using direct URL")
                     except Exception as e:
                         logger.error(f"Failed to generate presigned URL: {e}")
-                        # 실패 시 직접 URL 생성
                         processed_url = f"https://aimex-influencers.s3.ap-northeast-2.amazonaws.com/{single_image_url}"
-                else:
-                    # 이미 HTTP URL인 경우 그대로 사용
-                    processed_url = single_image_url
-                    logger.info(f"Using existing HTTP URL: {processed_url}")
 
                 processed_image_urls.append(processed_url)
 
