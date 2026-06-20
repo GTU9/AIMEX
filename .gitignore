@@ -137,3 +137,6 @@ deploy/milvus/volumes/
 # 런타임 업로드/생성물 (문서·음성·이미지)
 backend/uploads/
 uploads/
+
+# TypeScript incremental build info (빌드 산출물)
+*.tsbuildinfo
