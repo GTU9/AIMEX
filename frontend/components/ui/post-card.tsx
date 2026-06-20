@@ -261,8 +261,8 @@ export function PostCard({
 
   return (
     <Card
-      className={`hover:shadow-md transition-shadow ${variant === "content" ? "cursor-default" : "cursor-pointer group"}`}
-      onClick={variant === "content" ? undefined : () => onView?.(post)}
+      className={`hover:shadow-md transition-shadow ${onView ? "cursor-pointer group" : "cursor-default"}`}
+      onClick={onView ? () => onView(post) : undefined}
     >
       <CardContent className="p-6 flex flex-col h-full">
         {/* 상태와 플랫폼 배지를 오른쪽 상단에 고정 */}
