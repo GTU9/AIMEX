@@ -203,23 +203,13 @@ async def transform_with_influencer_tone(
                 status_code=400,
                 detail="인플루언서의 허깅페이스 모델이 설정되지 않았습니다.",
             )
-        if not ai_influencer.hf_manage_id:
+        # 토큰 해석은 챗봇과 동일한 리졸버 사용 (인플루언서 hf_manage_id 없으면 그룹 기본 토큰으로 폴백)
+        from app.services.hf_token_resolver import get_token_for_influencer
+        decrypted_token, _hf_user = await get_token_for_influencer(ai_influencer, db)
+        if not decrypted_token:
             raise HTTPException(
-                status_code=400, detail="허깅페이스 토큰이 설정되지 않았습니다."
+                status_code=400, detail="허깅페이스 토큰을 찾을 수 없습니다."
             )
-        hf_token = (
-            db.query(HFTokenManage)
-            .filter(HFTokenManage.hf_manage_id == ai_influencer.hf_manage_id)
-            .first()
-        )
-        if not hf_token:
-            raise HTTPException(
-                status_code=404, detail="허깅페이스 토큰을 찾을 수 없습니다."
-            )
-        encrypted_token_value = getattr(hf_token, "hf_token_value", None)
-        if not encrypted_token_value:
-            raise HTTPException(status_code=400, detail="토큰 값이 없습니다.")
-        decrypted_token = decrypt_sensitive_data(encrypted_token_value)
 
         # 인플루언서 성격과 톤 정보 가져오기
         personality = getattr(ai_influencer, "influencer_personality", None)

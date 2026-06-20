@@ -1197,11 +1197,11 @@ class AIContentGenerationResponse(BaseModel):
 async def generate_content_only(
     request: AIContentGenerationRequest,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """
     AI 콘텐츠 생성만 수행 (DB 저장 안 함)
-    선택한 인플루언서의 성격·말투로 변환해 반환한다.
+    여기서는 GPT 멀티모달로 '원본 본문'만 생성한다. 인플루언서 페르소나 적용은
+    별도 변환 단계(/content-enhancement/influencer-tone)에서 수행한다.
     """
     try:
         logger.info(f"=== AI 콘텐츠 생성 요청 시작 ===")
@@ -1251,30 +1251,9 @@ async def generate_content_only(
         logger.info(f"생성된 설명: {content_result.get('description', '')[:200]}...")
         logger.info(f"생성된 해시태그: {content_result.get('hashtags', '')}")
 
-        # 선택한 인플루언서의 성격·말투로 변환 (페르소나 반영)
-        final_content = content_result["description"]
-        influencer = (
-            db.query(AIInfluencer)
-            .filter(AIInfluencer.influencer_id == request.influencer_id)
-            .first()
-        )
-        if influencer:
-            styled = await content_service.convert_to_influencer_style(
-                text=content_result["description"],
-                influencer_name=influencer.influencer_name,
-                influencer_desc=influencer.influencer_description,
-                influencer_personality=influencer.influencer_personality,
-                influencer_tone=influencer.influencer_tone,
-            )
-            converted = (styled or {}).get("converted_text")
-            if converted and not (styled or {}).get("error"):
-                final_content = converted
-                logger.info(f"✅ '{influencer.influencer_name}' 말투로 변환 적용")
-        else:
-            logger.warning(f"⚠️ 인플루언서 미발견(influencer_id={request.influencer_id}) → 변환 생략")
-
+        # 원본 본문(페르소나 미적용). 인플루언서 말투 변환은 별도 단계에서 수행.
         return ContentGenerationResponse(
-            generated_content=final_content,
+            generated_content=content_result["description"],
             generated_hashtags=(
                 content_result["hashtags"].split() if content_result["hashtags"] else []
             ),
