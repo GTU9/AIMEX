@@ -2,6 +2,8 @@
 const nextConfig = {
   // Docker 배포 최적화: .next/standalone 으로 최소 런타임 산출 (이미지 경량화)
   output: 'standalone',
+  // 개발 모드 인디케이터(좌하단 'N Issues' 배지) 숨김 — 프로덕션엔 원래 없는 dev 전용 UI
+  devIndicators: false,
   images: {
     unoptimized: true,
   },
