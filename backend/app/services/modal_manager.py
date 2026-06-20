@@ -155,7 +155,10 @@ class ModalVLLMManager(BaseModalManager):
         logger.info(f"📦 Payload: {safe_json(payload)}...")
 
         try:
-            async with httpx.AsyncClient(timeout=300) as client:
+            # 대형 모델(7B 등) 콜드스타트는 가중치 다운로드+엔진 초기화로 길어진다.
+            # Modal 웹 엔드포인트는 동기 한도를 넘기면 303 리다이렉트로 결과 폴링 URL을
+            # 돌려주므로 follow_redirects 로 따라가 최종 결과(200)를 받는다.
+            async with httpx.AsyncClient(timeout=600, follow_redirects=True, max_redirects=100) as client:
                 response = await client.post(url, headers=self.headers, json=payload)
 
                 logger.info(f"📡 Response status: {response.status_code}")

@@ -28,7 +28,7 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 
 # Volume 내 모델/LoRA 캐시 경로
@@ -97,8 +97,8 @@ class GenerationModel:
             dtype="bfloat16",
             enable_lora=True,
             max_lora_rank=64,
-            max_loras=10,
-            gpu_memory_utilization=0.90,
+            max_loras=4,  # 7B 베이스 메모리 여유 확보(A10G 24GB) — 동시 LoRA 수 축소
+            gpu_memory_utilization=0.92,
             max_model_len=4096,
             enforce_eager=True,
         )

@@ -30,7 +30,7 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 MODELS_DIR = "/models"
 HF_CACHE_DIR = f"{MODELS_DIR}/hf_cache"
@@ -227,6 +227,7 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
     from transformers import (
         AutoModelForCausalLM,
         AutoTokenizer,
+        BitsAndBytesConfig,
         DataCollatorForLanguageModeling,
         EarlyStoppingCallback,
         Trainer,
@@ -274,12 +275,22 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
             tokenizer.pad_token = tokenizer.eos_token
             tokenizer.pad_token_id = tokenizer.eos_token_id
 
+        # 7B 베이스를 A10G(24GB)에서 안전하게 학습하기 위해 4-bit QLoRA 로딩.
+        # (어댑터 가중치는 풀정밀로 저장되어 bf16 추론 베이스에 정상 적용된다.)
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
         model = AutoModelForCausalLM.from_pretrained(
             base_model,
+            quantization_config=bnb_config,
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
         )
+        model.config.use_cache = False
 
         # 2) LoRA
         lora_config = LoraConfig(
