@@ -1,8 +1,10 @@
-import { Eye, EyeOff, Copy, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, Copy, RefreshCw, Send, Loader2 } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModelService } from "@/lib/services/model.service";
 
 interface ApiKeyInfo {
   created_at: string;
@@ -32,6 +34,26 @@ export default function ApiTab({
   copyApiKey,
   generateNewApiKey
 }: ApiTabProps) {
+  const [testMessage, setTestMessage] = useState("안녕! 간단히 자기소개 해줘.");
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const handleTest = async () => {
+    if (!model.apiKey || !testMessage.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      const res = await ModelService.callChatbot(model.apiKey, { message: testMessage });
+      setTestResult(res.response);
+    } catch (e: any) {
+      setTestError(e?.message || "호출에 실패했습니다. 모델 상태를 확인해주세요.");
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -114,7 +136,43 @@ export default function ApiTab({
             </Button>
           </div>
         </CardContent>
-      </Card>           
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>API 테스트</CardTitle>
+          <CardDescription>
+            발급된 API 키로 챗봇 엔드포인트를 실제 호출해 응답을 확인합니다
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex space-x-2">
+            <Input
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+              placeholder="테스트 메시지를 입력하세요"
+              onKeyDown={(e) => { if (e.key === "Enter") handleTest(); }}
+            />
+            <Button onClick={handleTest} disabled={testing || !model.apiKey} className="bg-blue-500 hover:bg-blue-600 shrink-0">
+              {testing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              테스트 호출
+            </Button>
+          </div>
+          {testResult && (
+            <div className="rounded-md border border-blue-100 bg-blue-50 p-3">
+              <div className="text-xs font-semibold text-blue-700 mb-1">응답</div>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{testResult}</p>
+            </div>
+          )}
+          {testError && (
+            <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-600">{testError}</div>
+          )}
+          {testing && !testResult && (
+            <p className="text-xs text-gray-500">모델 호출 중… (콜드스타트 시 시간이 걸릴 수 있어요)</p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>API 사용법</CardTitle>

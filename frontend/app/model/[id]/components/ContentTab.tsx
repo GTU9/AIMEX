@@ -1,5 +1,6 @@
 import { RefreshCw, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { Post } from "@/components/ui/post-card";
 
 interface ContentTabProps {
@@ -74,11 +75,17 @@ export default function ContentTab({
             <div className="text-center py-12">
               <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
               <p className="text-gray-500 text-lg">
-                아직 생성된 콘텐츠가 없습니다
+                아직 작성된 콘텐츠가 없습니다
               </p>
               <p className="text-gray-400 mt-2">
-                이미지 생성·채팅 등으로 콘텐츠가 만들어지면 여기에 표시됩니다
+                첫 번째 콘텐츠를 작성해보세요!
               </p>
+              <Link href="/create-post">
+                <Button className="mt-4">
+                  <FileText className="h-4 w-4 mr-2" />
+                  콘텐츠 작성하기
+                </Button>
+              </Link>
             </div>
           )}
         </>

@@ -100,14 +100,9 @@ export default function CreatePostPage() {
         isFetchingRef.current = true
         setLoading(true)
         const data = await ModelService.getInfluencers()
-        // 사용 가능하고 인스타그램 계정과 연동된 인플루언서만 필터링
+        // 사용 가능한 인플루언서면 콘텐츠 작성 가능 (인스타 발행은 비활성이므로 IG 연동 요건 불필요)
         const availableInfluencers = data.filter(inf =>
-          inf.learning_status === 1 &&
-          inf.instagram_is_active === true &&
-          inf.instagram_username &&
-          inf.instagram_username.trim() !== '' &&
-          inf.instagram_id &&
-          inf.instagram_id.trim() !== ''
+          inf.learning_status === 1
         )
         setInfluencers(availableInfluencers)
 
@@ -581,33 +576,12 @@ export default function CreatePostPage() {
       return
     }
 
-    // 예약 발행 시 날짜/시간 검증
-    if (publishType === 'scheduled') {
-      if (!scheduledDate || !scheduledTime) {
-        setError("예약 발행을 선택했다면 날짜와 시간을 모두 선택해주세요.")
-        return
-      }
-
-      const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`)
-      const now = new Date()
-
-      if (scheduledDateTime <= now) {
-        setError("예약 시간은 현재 시간보다 이후여야 합니다.")
-        return
-      }
-    }
-
     setSubmitting(true)
     setError(null)
 
     try {
-      // 발행 상태 결정
-      let boardStatus = 1; // 기본값: 임시저장
-      if (publishType === 'immediate') {
-        boardStatus = 3; // 즉시 발행
-      } else if (publishType === 'scheduled') {
-        boardStatus = 2; // 예약 발행
-      }
+      // 인스타그램 발행은 비활성 상태 → 콘텐츠는 항상 임시저장(초안)으로만 보관한다.
+      const boardStatus = 1; // 임시저장(초안)
 
       // 게시글 데이터 준비
       const teamId = user?.teams?.[0]?.group_id || 1
@@ -1157,85 +1131,11 @@ export default function CreatePostPage() {
               </CardContent>
             </Card>
 
-            {/* 발행 설정 */}
+            {/* 발행 설정: 인스타그램 발행은 현재 비활성 → 콘텐츠는 초안으로 저장만 됩니다 */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <svg className="h-5 w-5 text-black" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-                  </svg>
-                  <span>발행 설정</span>
-                </CardTitle>
-                <CardDescription>게시글을 언제 발행할지 선택하세요</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* 발행 옵션 */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* 즉시 발행 */}
-                  <div
-                    className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${publishType === 'immediate'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    onClick={() => {
-                      setPublishType('immediate')
-                      setScheduledDate('')
-                      setScheduledTime('')
-                    }}
-                  >
-                    <div className="text-center space-y-2">
-                      <div className="text-lg font-medium">즉시 발행</div>
-                      <div className="text-sm text-gray-600">게시글이 즉시 발행됩니다</div>
-                    </div>
-                  </div>
-
-                  {/* 스케줄 발행 */}
-                  <div
-                    className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${publishType === 'scheduled'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    onClick={() => setPublishType('scheduled')}
-                  >
-                    <div className="text-center space-y-2">
-                      <div className="text-lg font-medium">스케줄 발행</div>
-                      <div className="text-sm text-gray-600">원하는 시간에 발행</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 스케줄 발행 선택 시 날짜/시간 입력 */}
-                {publishType === 'scheduled' && (
-                  <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <Label className="text-sm font-medium text-blue-900 mb-2 block">예약 날짜 및 시간</Label>
-                    <Input
-                      type="datetime-local"
-                      value={scheduledDate && scheduledTime ? `${scheduledDate}T${scheduledTime}` : ''}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        if (value) {
-                          const [date, time] = value.split('T')
-                          setScheduledDate(date)
-                          setScheduledTime(time)
-                        }
-                      }}
-                      min={new Date().toISOString().slice(0, 16)}
-                      className="w-full border-blue-300 focus:border-blue-500"
-                    />
-                    {scheduledDate && scheduledTime && (
-                      <div className="mt-2 text-sm text-blue-700">
-                        📅 예약 시간: {new Date(`${scheduledDate}T${scheduledTime}`).toLocaleString('ko-KR', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          weekday: 'long'
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
+              <CardContent className="p-4 text-sm text-gray-600 flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 text-gray-400" />
+                작성한 콘텐츠는 <b>초안으로 저장</b>됩니다. (인스타그램 발행 연동은 현재 비활성화 상태)
               </CardContent>
             </Card>
 
@@ -1275,7 +1175,7 @@ export default function CreatePostPage() {
                 ) : (
                   <>
                     <Save className="h-4 w-4 mr-2" />
-                    게시글 발행
+                    게시글 저장
                   </>
                 )}
               </Button>
