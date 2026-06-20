@@ -111,6 +111,14 @@ export default function FineTuningTab({ influencerId, learningStatus }: FineTuni
           </p>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+            <AlertCircle className="h-4 w-4 mt-0.5 text-amber-500 shrink-0" />
+            <span>
+              이 인플루언서는 <b>생성 시 한 번 자동으로 학습</b>되었습니다. 아래 "파인튜닝 시작"은
+              <b> 설정·말투를 바꿨거나, 학습 문서/데이터를 추가했거나, 답변 품질을 더 높이고 싶을 때 다시 학습</b>하는 용도입니다.
+              (재학습하면 새 LoRA 어댑터로 교체됩니다.)
+            </span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
               <div className="flex items-center gap-2 text-blue-600 mb-1">
@@ -153,7 +161,7 @@ export default function FineTuningTab({ influencerId, learningStatus }: FineTuni
               </Button>
               <Button size="sm" onClick={handleStart} disabled={triggering || anyRunning} className="bg-blue-500 hover:bg-blue-600">
                 {triggering ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
-                {anyRunning ? "진행 중..." : "파인튜닝 시작"}
+                {anyRunning ? "진행 중..." : (learningStatus === 1 ? "재학습 시작" : "파인튜닝 시작")}
               </Button>
             </div>
           </div>
