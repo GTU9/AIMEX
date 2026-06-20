@@ -30,7 +30,7 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-32B-Instruct"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 MODELS_DIR = "/models"
 HF_CACHE_DIR = f"{MODELS_DIR}/hf_cache"
@@ -214,10 +214,10 @@ def _load_qa_data(dataset_url: str, inline: Optional[List[Dict]]) -> List[Dict]:
 # 파인튜닝 함수
 # ---------------------------------------------------------------------------
 @app.function(
-    gpu="A10G",
+    gpu="A100-80GB",  # Qwen2.5-32B QLoRA(4bit) 학습
     image=image,
     volumes={MODELS_DIR: volume},
-    timeout=7200,  # 학습은 길어질 수 있음 (최대 2시간)
+    timeout=10800,  # 대형 모델 학습 (최대 3시간)
 )
 def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
     import torch

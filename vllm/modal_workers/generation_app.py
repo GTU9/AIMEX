@@ -28,7 +28,7 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen2.5-32B-Instruct"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 
 # Volume 내 모델/LoRA 캐시 경로
@@ -73,11 +73,11 @@ volume = modal.Volume.from_name("aimex-models", create_if_missing=True)
 # 모델 컨테이너 (vLLM 엔진 싱글톤)
 # ---------------------------------------------------------------------------
 @app.cls(
-    gpu="A10G",
+    gpu="A100-80GB",  # Qwen2.5-32B bf16(~65GB) 서빙
     image=image,
     volumes={MODELS_DIR: volume},
-    scaledown_window=300,  # 마지막 요청 후 5분 유지 → 7B 콜드스타트(가중치 재로딩) 빈도 감소
-    timeout=600,
+    scaledown_window=300,  # 마지막 요청 후 5분 유지 → 콜드스타트(가중치 재로딩) 빈도 감소
+    timeout=900,
     max_containers=2,
 )
 class GenerationModel:
@@ -97,8 +97,8 @@ class GenerationModel:
             dtype="bfloat16",
             enable_lora=True,
             max_lora_rank=64,
-            max_loras=4,  # 7B 베이스 메모리 여유 확보(A10G 24GB) — 동시 LoRA 수 축소
-            gpu_memory_utilization=0.92,
+            max_loras=2,  # 32B 베이스(~65GB) 메모리 여유 확보 — 동시 LoRA 수 축소
+            gpu_memory_utilization=0.93,
             max_model_len=4096,
             enforce_eager=True,
         )
