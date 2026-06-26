@@ -925,7 +925,7 @@ async def build_rag_context(influencer_id: str, query: str) -> tuple[str, list]:
         from app.services.embedding_client import embed_texts
         from app.services.rag_vector_store import get_vector_store
 
-        qvec = (await embed_texts([query]))[0]
+        qvec = (await embed_texts([query], input_type="query"))[0]
         hits = get_vector_store().search(
             qvec, influencer_id, settings.RAG_TOP_K, settings.RAG_SCORE_THRESHOLD
         )

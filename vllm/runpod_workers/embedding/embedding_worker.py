@@ -25,6 +25,7 @@ device = None
 
 # 지원 모델 목록
 SUPPORTED_MODELS = {
+    "qwen3-embedding-0.6b": "Qwen/Qwen3-Embedding-0.6B",
     "bge-m3": "BAAI/bge-m3",
     "multilingual-e5-large-instruct": "intfloat/multilingual-e5-large-instruct",
     "gte-multilingual-base": "Alibaba-NLP/gte-multilingual-base",
@@ -32,7 +33,7 @@ SUPPORTED_MODELS = {
     "xlm-roberta-large": "sentence-transformers/xlm-r-100langs-bert-base-nli-stsb-mean-tokens"
 }
 
-DEFAULT_MODEL = "BAAI/bge-m3"
+DEFAULT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 def initialize_model(model_name: str = DEFAULT_MODEL):
     """모델 초기화"""
@@ -97,6 +98,7 @@ def validate_input(job_input: Dict[str, Any]) -> Dict[str, Any]:
     validated = {
         "texts": texts,
         "model_name": model_name,
+        "input_type": job_input.get("input_type", "document"),
         "batch_size": int(job_input.get("batch_size", 32)),
         "normalize_embeddings": job_input.get("normalize_embeddings", True),
         "show_progress_bar": job_input.get("show_progress_bar", False),
@@ -111,21 +113,32 @@ def generate_embeddings(
     batch_size: int = 32,
     normalize_embeddings: bool = True,
     show_progress_bar: bool = False,
-    convert_to_numpy: bool = True
+    convert_to_numpy: bool = True,
+    input_type: str = "document",
 ) -> Union[List[List[float]], np.ndarray]:
     """임베딩 생성"""
     logger.info(f"📝 임베딩 생성 시작: {len(texts)}개 텍스트")
     
     # 임베딩 생성
     with torch.no_grad():
-        embeddings = embedding_model.encode(
-            texts,
-            batch_size=batch_size,
-            normalize_embeddings=normalize_embeddings,
-            show_progress_bar=show_progress_bar,
-            convert_to_numpy=convert_to_numpy,
-            device=device
-        )
+        encode_kwargs = {
+            "batch_size": batch_size,
+            "normalize_embeddings": normalize_embeddings,
+            "show_progress_bar": show_progress_bar,
+            "convert_to_numpy": convert_to_numpy,
+            "device": device,
+        }
+        if input_type == "query":
+            try:
+                embeddings = embedding_model.encode(
+                    texts, prompt_name="query", **encode_kwargs
+                )
+            except (KeyError, ValueError):
+                task = "Given a web search query, retrieve relevant passages that answer the query"
+                texts = [f"Instruct: {task}\nQuery: {text}" for text in texts]
+                embeddings = embedding_model.encode(texts, **encode_kwargs)
+        else:
+            embeddings = embedding_model.encode(texts, **encode_kwargs)
     
     return embeddings
 
@@ -162,7 +175,8 @@ def handler(job):
             batch_size=job_input["batch_size"],
             normalize_embeddings=job_input["normalize_embeddings"],
             show_progress_bar=job_input["show_progress_bar"],
-            convert_to_numpy=job_input["convert_to_numpy"]
+            convert_to_numpy=job_input["convert_to_numpy"],
+            input_type=job_input["input_type"],
         )
         
         # 형식 변환
@@ -260,7 +274,8 @@ def batch_handler(jobs):
                 batch_size=job_input["batch_size"],
                 normalize_embeddings=job_input["normalize_embeddings"],
                 show_progress_bar=False,
-                convert_to_numpy=True
+                convert_to_numpy=True,
+                input_type=job_input["input_type"],
             )
             
             # 결과를 각 job별로 분리

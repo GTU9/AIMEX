@@ -40,7 +40,7 @@ if result["status"] == "success":
 # 기존 방식
 response = requests.post("http://localhost:8000/api/v1/embed", json={
     "texts": ["텍스트1", "텍스트2"],
-    "model_name": "BAAI/bge-m3"
+    "model_name": "Qwen/Qwen3-Embedding-0.6B"
 })
 ```
 
@@ -51,7 +51,7 @@ result = runpod.run(
     endpoint_id=RUNPOD_EMBEDDING_ENDPOINT_ID,
     input={
         "texts": ["텍스트1", "텍스트2"],
-        "model_name": "bge-m3",  # 또는 전체 경로
+        "model_name": "qwen3-embedding-0.6b",  # 또는 전체 경로
         "return_format": "list"
     }
 )

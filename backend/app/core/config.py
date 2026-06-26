@@ -125,7 +125,7 @@ class Settings(BaseSettings):
     MODAL_AUTH_TOKEN: Optional[str] = os.getenv("MODAL_AUTH_TOKEN")
 
     # RAG 설정
-    # 임베딩: Modal bge-m3 엔드포인트(POST /embed)
+    # 임베딩: Modal Qwen3-Embedding-0.6B 엔드포인트(POST /embed)
     MODAL_EMBEDDING_URL: Optional[str] = os.getenv("MODAL_EMBEDDING_URL")
     # 벡터DB: Chroma(임베디드). 별도 서버/Docker 없이 로컬 파일에 영속화.
     # 위치는 업로드 저장소 계열(uploads/vectors).

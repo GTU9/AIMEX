@@ -23,3 +23,7 @@ modal>=0.64
 #   torch, transformers>=4.43.0, accelerate, peft, bitsandbytes, datasets,
 #   safetensors, huggingface_hub, sentencepiece, scipy, scikit-learn, numpy,
 #   requests, fastapi[standard]
+#
+# embedding_app.py:
+#   torch, transformers>=4.51.0, sentence-transformers>=2.7.0,
+#   huggingface_hub, accelerate, fastapi[standard]

@@ -546,7 +546,7 @@ async def get_vector_stats():
                 # vLLM 서버 통계 정보
                 stats = {
                     "total_chunks": vllm_stats.get("num_entities", 0),
-                    "embedding_dimension": 1024,  # BGE-M3 기본 차원
+                    "embedding_dimension": 1024,  # Qwen3-Embedding-0.6B 기본 차원
                     "device": "chroma",
                     "collection_name": vllm_stats.get(
                         "collection_name", "rag_documents"

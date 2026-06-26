@@ -5,8 +5,8 @@ runpod==1.6.0
 torch>=2.0.0
 
 # 임베딩 모델
-sentence-transformers>=2.2.2
-transformers>=4.35.0
+sentence-transformers>=2.7.0
+transformers>=4.51.0
 huggingface-hub>=0.19.0
 
 # 다국어 처리

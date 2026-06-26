@@ -18,7 +18,7 @@ class VectorDBConfig(BaseModel):
 
     uri: str = "./milvus_vector.db"
     collection_name: str = "rag_documents"
-    dimension: int = 1024  # BGE-M3 기본 차원
+    dimension: int = 1024  # Qwen3-Embedding-0.6B 기본 차원
     index_type: str = "IVF_FLAT"  # 성능 최적화된 인덱스
     metric_type: str = "COSINE"  # 코사인 유사도
     nlist: int = 1024  # IVF 클러스터 수

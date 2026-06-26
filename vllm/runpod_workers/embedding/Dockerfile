@@ -33,7 +33,7 @@ COPY embedding_worker.py .
 
 # 주요 모델 사전 다운로드 (선택사항)
 RUN python3 -c "from sentence_transformers import SentenceTransformer; \
-    SentenceTransformer('BAAI/bge-m3', cache_folder='/app/models')"
+    SentenceTransformer('Qwen/Qwen3-Embedding-0.6B', cache_folder='/app/models')"
 
 # 환경 변수로 모델 캐시 디렉토리 설정
 ENV HF_HOME=/app/models

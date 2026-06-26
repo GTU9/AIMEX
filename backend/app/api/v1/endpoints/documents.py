@@ -220,7 +220,7 @@ async def vectorize_document(documents_id: str, db: Session = Depends(get_db)):
     if not chunks:
         raise HTTPException(status_code=400, detail="추출된 텍스트가 없습니다.")
 
-    vecs = await embed_texts(chunks)
+    vecs = await embed_texts(chunks, input_type="document")
     store = get_vector_store()
     store.delete_by_influencer(doc.influencer_id)  # 재벡터화 시 해당 인플루언서 기존 벡터 제거
     store.upsert([
@@ -285,7 +285,7 @@ async def _rebuild_influencer_vectors(influencer_id: str, db: Session) -> dict:
                 "embedded_documents": 0, "chunks": 0, "skipped": skipped}
 
     texts = [r["text"] for r in rows]
-    vecs = await embed_texts(texts)
+    vecs = await embed_texts(texts, input_type="document")
 
     store.delete_by_influencer(influencer_id)  # 전체 재구축
     store.upsert([

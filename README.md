@@ -70,7 +70,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 <img src="etc/screenshots/chat-rag.png" width="760" alt="RAG - 문서 근거 응답(문서명·스니펫·유사도 표시)" />
 
-> 동작: 질문 임베딩(bge-m3, 1024d) → **Chroma 유사도 검색**(임베디드, score ≥ 0.5) → 상위 청크를 프롬프트에 주입해 답변 생성 → 참고 자료(문서명·스니펫·유사도)를 함께 전송.
+> 동작: 질문 임베딩(Qwen3-Embedding-0.6B, 1024d) → **Chroma 유사도 검색**(임베디드, score ≥ 0.5) → 상위 청크를 프롬프트에 주입해 답변 생성 → 참고 자료(문서명·스니펫·유사도)를 함께 전송.
 
 ### 5. MCP — 문서에 없으면 웹검색으로 보강
 
@@ -86,7 +86,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 <img src="etc/screenshots/documents-embed.png" width="760" alt="문서 반영 - 일괄 임베딩 완료" />
 
-> 동작: 업로드(파일 저장) → "챗봇에 반영" → 형식별 텍스트 추출(PDF/DOCX 포함) → 섹션 단위 청킹 → bge-m3 임베딩(Modal) → Chroma(임베디드)를 현재 문서 전체 기준으로 재구축(고아 벡터 없음).
+> 동작: 업로드(파일 저장) → "챗봇에 반영" → 형식별 텍스트 추출(PDF/DOCX 포함) → 섹션 단위 청킹 → Qwen3-Embedding-0.6B 임베딩(Modal) → Chroma(임베디드)를 현재 문서 전체 기준으로 재구축(고아 벡터 없음).
 
 ### 7. 파인튜닝 — QA 생성 → LoRA 학습 → 챗봇 반영
 
@@ -178,7 +178,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 | 모델 용도 | 모델 |
 |-----------|------|
 | 대화/추론 (LoRA 베이스) | `Qwen/Qwen2.5-32B-Instruct` |
-| 임베딩 (RAG) | `bge-m3` (1024d) |
+| 임베딩 (RAG) | `Qwen/Qwen3-Embedding-0.6B` (1024d) |
 | 음성 합성 (TTS) | `XTTS-v2` |
 | 이미지 생성 | `SDXL-Turbo` |
 | 이미지 편집 | `InstructPix2Pix` |
@@ -207,7 +207,7 @@ flowchart TB
     subgraph MODAL["Modal · 서버리스 GPU (온디맨드)"]
         GEN["aimex-generation<br/>Qwen + LoRA 추론"]
         FT["aimex-finetuning<br/>LoRA 학습 → HF"]
-        EMB["aimex-embedding<br/>bge-m3"]
+        EMB["aimex-embedding<br/>Qwen3-Embedding-0.6B"]
         TTS["aimex-xtts<br/>XTTS-v2"]
         IMG["aimex-image<br/>SDXL-Turbo"]
         EDIT["aimex-image-edit<br/>InstructPix2Pix"]
@@ -233,7 +233,7 @@ flowchart LR
     D --> E1["실시간 챗 + RAG + MCP"]
     D --> E2["음성 합성 (XTTS)"]
     A --> F["이미지 생성/수정<br/>SDXL · IP2P"]
-    G["문서 업로드"] --> H["'챗봇에 반영'<br/>bge-m3 → Chroma"] --> E1
+    G["문서 업로드"] --> H["'챗봇에 반영'<br/>Qwen3-Embedding-0.6B → Chroma"] --> E1
 ```
 
 ## ERD (핵심 엔티티)

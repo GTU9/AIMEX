@@ -62,7 +62,8 @@ async def shutdown_executor():
 class EmbeddingRequest(BaseModel):
     """임베딩 요청 모델"""
     texts: List[str]
-    model_name: Optional[str] = "BAAI/bge-m3"
+    model_name: Optional[str] = "Qwen/Qwen3-Embedding-0.6B"
+    input_type: Optional[str] = "document"
     device: Optional[str] = None
     batch_size: Optional[int] = 32
 
@@ -125,7 +126,7 @@ def embedding_worker_process(request_queue: Queue, response_queue: Queue):
         # 토크나이저 병렬화 비활성화
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         
-        embedding_model = SentenceTransformer("BAAI/bge-m3", device=device)
+        embedding_model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device=device)
         logger.info("✅ 임베딩 워커 모델 초기화 완료")
     except Exception as e:
         logger.error(f"❌ 임베딩 워커 모델 초기화 실패: {e}")
@@ -161,7 +162,7 @@ def embedding_worker_process(request_queue: Queue, response_queue: Queue):
                         'status': 'success',
                         'embeddings': embeddings.tolist(),
                         'dimension': embedding_model.get_sentence_embedding_dimension(),
-                        'model_name': "BAAI/bge-m3",
+                        'model_name': "Qwen/Qwen3-Embedding-0.6B",
                         'device': str(device),
                         'batch_size': batch_size
                     })
@@ -201,7 +202,7 @@ def initialize_embedding_multiprocessing():
     else:
         logger.info("임베딩 멀티프로세싱이 이미 실행 중입니다.")
 
-def initialize_embedding_model(model_name: str = "BAAI/bge-m3", device: str = None):
+def initialize_embedding_model(model_name: str = "Qwen/Qwen3-Embedding-0.6B", device: str = None):
     """임베딩 모델 초기화 (멀티프로세싱 방식)"""
     global embedding_model, embedding_device, embedding_initialization_attempted
     
@@ -235,6 +236,7 @@ async def generate_embeddings(request: EmbeddingRequest):
             'type': 'generate_embeddings',
             'task_id': task_id,
             'texts': request.texts,
+            'input_type': request.input_type or 'document',
             'batch_size': request.batch_size or 32
         }
         
@@ -271,6 +273,7 @@ async def batch_embedding(request: EmbeddingRequest):
             'type': 'generate_embeddings',
             'task_id': task_id,
             'texts': request.texts,
+            'input_type': request.input_type or 'document',
             'batch_size': request.batch_size or 32
         }
         
@@ -300,9 +303,9 @@ async def get_embedding_info():
         raise HTTPException(status_code=404, detail="임베딩 모델이 초기화되지 않았습니다.")
     
     return {
-        "model_name": "BAAI/bge-m3",
+        "model_name": "Qwen/Qwen3-Embedding-0.6B",
         "device": embedding_device or "cuda:0",
-        "dimension": 1024,  # BGE-M3 임베딩 차원
+        "dimension": 1024,  # Qwen3-Embedding-0.6B 임베딩 차원
         "max_seq_length": 512,
         "is_initialized": True,
         "process_mode": "multiprocessing"

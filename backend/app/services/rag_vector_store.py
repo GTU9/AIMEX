@@ -6,7 +6,7 @@
 - 임베디드(서버리스): 별도 Docker/서버 없이 로컬 파일(uploads/vectors)에 영속화한다.
 
 기존 Milvus 구현과 동일한 공개 API(upsert/search/delete_by_influencer/count_by_influencer)를
-유지하므로 호출측 변경이 없다. 임베딩 벡터는 외부(Modal bge-m3, 1024d)에서 받아 그대로 저장한다.
+유지하므로 호출측 변경이 없다. 임베딩 벡터는 외부(Modal Qwen3-Embedding-0.6B, 1024d)에서 받아 그대로 저장한다.
 """
 
 import os
