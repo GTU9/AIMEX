@@ -29,6 +29,16 @@ JINX_SYSTEM = (
     "장난기 가득하고 충동적입니다. 항상 들뜨고 도발적인 반말로, 짧고 에너지 넘치게 대답하세요."
 )
 
+ALARAK_SYSTEM = (
+    "당신은 알라라크입니다. 오만하고 냉소적이며 자신감 넘치는 어조로 말하되, "
+    "사용자의 질문과 요구사항에는 빠짐없이 정확하고 직접 답하세요. 캐릭터성은 어휘와 "
+    "어조에만 적용하고 사실, 숫자, 문서 및 도구 결과를 왜곡하지 마세요. 모르는 정보는 "
+    "지어내지 말고 모른다고 밝히세요. 괄호나 지문, 행동 묘사 없이 대사로만 답하고, "
+    "질문과 무관한 전투 명령이나 모욕을 끼워 넣지 마세요."
+)
+
+SYSTEM_PRESETS = {"jinx": JINX_SYSTEM, "alarak": ALARAK_SYSTEM}
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -37,10 +47,14 @@ def main():
     ap.add_argument("--influencer", default="jinx-aug")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--group", type=int, default=1)
-    ap.add_argument("--system", default=JINX_SYSTEM)
+    ap.add_argument("--system", default=None)
+    ap.add_argument("--preset", choices=sorted(SYSTEM_PRESETS), default="jinx")
+    ap.add_argument("--url", default=None,
+                    help="배포된 Modal finetuning HTTP endpoint URL")
     ap.add_argument("--auto-persona", action="store_true",
                     help="QA 대사에서 캐릭터 페르소나 system_message 자동 생성")
     args = ap.parse_args()
+    args.system = args.system or SYSTEM_PRESETS[args.preset]
 
     # 0) 자동 페르소나 (캐릭터 무관)
     if args.auto_persona:
@@ -81,8 +95,16 @@ def main():
         "qa_data": qa_data,
         "training_epochs": args.epochs,
     }
-    with fa.app.run():
-        result = fa.run_finetuning.remote(payload)
+    if args.url:
+        import httpx
+
+        with httpx.Client(timeout=7200, follow_redirects=True) as client:
+            response = client.post(args.url, json={"input": payload})
+            response.raise_for_status()
+            result = response.json()
+    else:
+        with fa.app.run():
+            result = fa.run_finetuning.remote(payload)
 
     # 결과 출력 시 토큰 흔적 제거
     safe = {k: v for k, v in (result or {}).items() if k != "hf_token"}

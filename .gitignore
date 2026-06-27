@@ -114,6 +114,9 @@ logs/
 .omc/
 docs/
 
+# Codex
+.omx/
+
 # 브라우저 e2e 검증 아티팩트 (Playwright node_modules / 스크린샷 / 리포트)
 .e2e/
 
@@ -140,3 +143,5 @@ uploads/
 
 # TypeScript incremental build info (빌드 산출물)
 *.tsbuildinfo
+
+backend/scripts/*

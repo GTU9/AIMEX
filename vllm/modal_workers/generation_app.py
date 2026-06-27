@@ -28,7 +28,8 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "Qwen/Qwen2.5-32B-Instruct"
+DEFAULT_MODEL = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
+DEFAULT_MODEL_REVISION = "8e6fc27d1910b526b5d48a2aa129b08a0293df5e"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 
 # Volume 내 모델/LoRA 캐시 경로
@@ -73,7 +74,7 @@ volume = modal.Volume.from_name("aimex-models", create_if_missing=True)
 # 모델 컨테이너 (vLLM 엔진 싱글톤)
 # ---------------------------------------------------------------------------
 @app.cls(
-    gpu="A100-80GB",  # Qwen2.5-32B bf16(~65GB) 서빙
+    gpu="A10G",  # EXAONE-3.5-2.4B bf16 서빙
     image=image,
     volumes={MODELS_DIR: volume},
     scaledown_window=300,  # 마지막 요청 후 5분 유지 → 콜드스타트(가중치 재로딩) 빈도 감소
@@ -89,10 +90,14 @@ class GenerationModel:
 
         logger.info("vLLM 엔진 초기화 시작: %s", DEFAULT_MODEL)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            DEFAULT_MODEL, trust_remote_code=True
+            DEFAULT_MODEL,
+            revision=DEFAULT_MODEL_REVISION,
+            trust_remote_code=True,
         )
         self.engine = LLM(
             model=DEFAULT_MODEL,
+            revision=DEFAULT_MODEL_REVISION,
+            tokenizer_revision=DEFAULT_MODEL_REVISION,
             trust_remote_code=True,
             dtype="bfloat16",
             enable_lora=True,

@@ -30,7 +30,8 @@ import modal
 # ---------------------------------------------------------------------------
 # 설정 상수
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "Qwen/Qwen2.5-32B-Instruct"
+DEFAULT_MODEL = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
+DEFAULT_MODEL_REVISION = "8e6fc27d1910b526b5d48a2aa129b08a0293df5e"
 DEFAULT_SYSTEM_MESSAGE = "당신은 도움이 되는 AI 어시스턴트입니다."
 MODELS_DIR = "/models"
 HF_CACHE_DIR = f"{MODELS_DIR}/hf_cache"
@@ -170,10 +171,21 @@ def _prepare_dataset(qa_data: List[Dict], system_message: str, tokenizer, max_le
     from datasets import Dataset
 
     qa_data = _normalize_qa_data(qa_data)
-    formatted = [
-        {"text": _create_chat_format(tokenizer, item["question"], item["answer"], system_message)}
-        for item in qa_data
-    ]
+    formatted = []
+    for item in qa_data:
+        prompt_messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": item["question"]},
+        ]
+        prompt_text = tokenizer.apply_chat_template(
+            prompt_messages, tokenize=False, add_generation_prompt=True
+        )
+        formatted.append({
+            "text": _create_chat_format(
+                tokenizer, item["question"], item["answer"], system_message
+            ),
+            "prompt_text": prompt_text,
+        })
     dataset = Dataset.from_list(formatted)
 
     def _tok(examples):
@@ -184,10 +196,61 @@ def _prepare_dataset(qa_data: List[Dict], system_message: str, tokenizer, max_le
             max_length=max_length,
             return_tensors=None,
         )
-        out["labels"] = out["input_ids"].copy()
+        prompt_tokens = tokenizer(
+            examples["prompt_text"],
+            truncation=True,
+            padding=False,
+            max_length=max_length,
+            return_tensors=None,
+        )
+
+        # system/user/assistant 헤더는 학습하지 않고 실제 assistant 답변에만 loss를 건다.
+        # 채팅 템플릿에 따라 prompt와 full sequence의 경계 토큰이 달라질 수 있어
+        # 단순 길이 대신 공통 prefix 길이를 사용한다.
+        labels = []
+        for full_ids, prompt_ids in zip(out["input_ids"], prompt_tokens["input_ids"]):
+            prefix_len = 0
+            for full_id, prompt_id in zip(full_ids, prompt_ids):
+                if full_id != prompt_id:
+                    break
+                prefix_len += 1
+            sample_labels = [-100] * prefix_len + full_ids[prefix_len:]
+            if not any(label != -100 for label in sample_labels):
+                raise ValueError(
+                    "assistant 답변 토큰이 max_length 내에 없습니다. "
+                    "system/user 프롬프트 길이를 줄이거나 max_length를 늘리세요."
+                )
+            labels.append(sample_labels)
+        out["labels"] = labels
         return out
 
     return dataset.map(_tok, batched=True, remove_columns=dataset.column_names)
+
+
+def _split_qa_by_answer(
+    qa_data: List[Dict], test_ratio: float = 0.1, seed: int = 42
+) -> tuple[List[Dict], List[Dict]]:
+    """동일 답변의 변형 질문이 train/eval 양쪽에 섞이지 않도록 그룹 분할."""
+    import random
+
+    normalized = _normalize_qa_data(qa_data)
+    by_answer: Dict[str, List[Dict]] = {}
+    for item in normalized:
+        by_answer.setdefault(item["answer"], []).append(item)
+
+    answers = list(by_answer)
+    if len(answers) < 2:
+        raise ValueError("train/eval 분할에는 서로 다른 답변이 최소 2개 필요합니다.")
+
+    random.Random(seed).shuffle(answers)
+    eval_group_count = max(1, round(len(answers) * test_ratio))
+    eval_group_count = min(eval_group_count, len(answers) - 1)
+    eval_answers = set(answers[:eval_group_count])
+
+    train_qa, eval_qa = [], []
+    for answer, items in by_answer.items():
+        (eval_qa if answer in eval_answers else train_qa).extend(items)
+    return train_qa, eval_qa
 
 
 def _load_qa_data(dataset_url: str, inline: Optional[List[Dict]]) -> List[Dict]:
@@ -214,7 +277,7 @@ def _load_qa_data(dataset_url: str, inline: Optional[List[Dict]]) -> List[Dict]:
 # 파인튜닝 함수
 # ---------------------------------------------------------------------------
 @app.function(
-    gpu="A100-80GB",  # Qwen2.5-32B QLoRA(4bit) 학습
+    gpu="A10G",  # EXAONE-3.5-2.4B QLoRA(4bit) 학습
     image=image,
     volumes={MODELS_DIR: volume},
     timeout=10800,  # 대형 모델 학습 (최대 3시간)
@@ -228,7 +291,7 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
         AutoModelForCausalLM,
         AutoTokenizer,
         BitsAndBytesConfig,
-        DataCollatorForLanguageModeling,
+        DataCollatorForTokenClassification,
         EarlyStoppingCallback,
         Trainer,
         TrainingArguments,
@@ -240,6 +303,9 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("필수 필드 누락: hf_token")
 
     base_model = payload.get("base_model") or DEFAULT_MODEL
+    model_revision = payload.get("base_model_revision")
+    if model_revision is None and base_model == DEFAULT_MODEL:
+        model_revision = DEFAULT_MODEL_REVISION
     system_message = payload.get("system_message") or DEFAULT_SYSTEM_MESSAGE
     qa_data = _load_qa_data(payload.get("dataset_url", ""), payload.get("qa_data"))
 
@@ -253,10 +319,10 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     epochs = int(payload.get("training_epochs", 3))
     batch_size = int(payload.get("batch_size", 1))
-    learning_rate = float(payload.get("learning_rate", 3e-4))
-    lora_r = int(payload.get("lora_r", 32))
-    lora_alpha = int(payload.get("lora_alpha", 64))
-    lora_dropout = float(payload.get("lora_dropout", 0.0))
+    learning_rate = float(payload.get("learning_rate", 1e-4))
+    lora_r = int(payload.get("lora_r", 16))
+    lora_alpha = int(payload.get("lora_alpha", 32))
+    lora_dropout = float(payload.get("lora_dropout", 0.05))
     grad_accum = int(payload.get("gradient_accumulation_steps", 8))
     warmup_steps = int(payload.get("warmup_steps", 10))
     save_steps = int(payload.get("save_steps", 50))
@@ -266,11 +332,15 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("파인튜닝 시작: base=%s repo=%s qa=%d", base_model, hf_repo_id, len(qa_data))
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        output_dir = os.path.join(temp_dir, "finetuned_model")
-        os.makedirs(output_dir, exist_ok=True)
+        training_dir = os.path.join(temp_dir, "training")
+        adapter_dir = os.path.join(temp_dir, "adapter")
+        os.makedirs(training_dir, exist_ok=True)
+        os.makedirs(adapter_dir, exist_ok=True)
 
         # 1) 모델/토크나이저
-        tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(
+            base_model, revision=model_revision, trust_remote_code=True
+        )
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
             tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -288,6 +358,7 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
             quantization_config=bnb_config,
             torch_dtype=torch.bfloat16,
             device_map="auto",
+            revision=model_revision,
             trust_remote_code=True,
         )
         model.config.use_cache = False
@@ -304,14 +375,19 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
         model = prepare_model_for_kbit_training(model)
         model = get_peft_model(model, lora_config)
 
-        # 3) 데이터셋 (90:10 split)
-        tokenized = _prepare_dataset(qa_data, system_message, tokenizer)
-        split = tokenized.train_test_split(test_size=0.1, seed=42)
-        train_dataset, eval_dataset = split["train"], split["test"]
+        # 3) 데이터셋: 같은 원본 답변의 변형 질문은 한 split에만 둔다.
+        train_qa, eval_qa = _split_qa_by_answer(qa_data, test_ratio=0.1, seed=42)
+        train_dataset = _prepare_dataset(train_qa, system_message, tokenizer)
+        eval_dataset = _prepare_dataset(eval_qa, system_message, tokenizer)
+        logger.info(
+            "데이터 분할 완료: train=%d eval=%d (답변 그룹 기준)",
+            len(train_dataset),
+            len(eval_dataset),
+        )
 
         # 4) TrainingArguments (eval_strategy 버전 호환)
         training_kwargs = {
-            "output_dir": output_dir,
+            "output_dir": training_dir,
             "num_train_epochs": epochs,
             "per_device_train_batch_size": batch_size,
             "per_device_eval_batch_size": batch_size,
@@ -348,20 +424,23 @@ def run_finetuning(payload: Dict[str, Any]) -> Dict[str, Any]:
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             tokenizer=tokenizer,
-            data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+            data_collator=DataCollatorForTokenClassification(
+                tokenizer=tokenizer, label_pad_token_id=-100
+            ),
             callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
         )
 
         # 6) 학습 + 저장
         trainer.train()
-        trainer.save_model()
-        tokenizer.save_pretrained(output_dir)
+        # 체크포인트/optimizer는 업로드하지 않고 최종 LoRA 어댑터만 별도 저장한다.
+        model.save_pretrained(adapter_dir)
+        tokenizer.save_pretrained(adapter_dir)
 
         # 7) HF 업로드
         api = HfApi()
         create_repo(repo_id=hf_repo_id, token=hf_token, private=True, exist_ok=True)
         api.upload_folder(
-            folder_path=output_dir,
+            folder_path=adapter_dir,
             repo_id=hf_repo_id,
             token=hf_token,
             commit_message="LoRA fine-tuning via Modal",

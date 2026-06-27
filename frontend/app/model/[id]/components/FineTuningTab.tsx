@@ -133,7 +133,7 @@ export default function FineTuningTab({ influencerId, learningStatus }: FineTuni
                 <Cpu className="h-4 w-4" /><span className="font-semibold text-sm">2. LoRA 파인튜닝</span>
               </div>
               <p className="text-xs text-gray-500 leading-relaxed">
-                생성된 QA로 Modal GPU에서 베이스 모델(Qwen2.5)에 LoRA 어댑터를 학습하고 허깅페이스에 업로드합니다.
+                생성된 QA로 Modal GPU에서 베이스 모델(EXAONE-3.5-2.4B)에 LoRA 어댑터를 학습하고 허깅페이스에 업로드합니다.
               </p>
             </div>
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">

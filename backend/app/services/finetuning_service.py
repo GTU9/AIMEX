@@ -74,7 +74,7 @@ class InfluencerFineTuningService:
         # ⚠️ 추론 워커(vllm/modal_workers/generation_app.py 의 DEFAULT_MODEL)와 반드시 동일해야
         #    학습한 LoRA 어댑터가 추론 시 베이스에 정상적으로 붙는다. 모델 교체 시 양쪽을 함께 바꿀 것.
         self.base_model = os.getenv(
-            "FINETUNING_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct"
+            "FINETUNING_BASE_MODEL", "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"
         )
 
     def _convert_korean_to_english(self, korean_name: str) -> str:

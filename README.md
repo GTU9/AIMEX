@@ -62,7 +62,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 <img src="etc/screenshots/chat-lora.png" width="760" alt="챗봇 - LoRA 캐릭터 응답" />
 
-> 동작: 메시지 전송(WebSocket) → 백엔드가 Modal `aimex-generation`(Qwen2.5-32B-Instruct + 해당 LoRA)으로 추론 → 토큰 스트리밍으로 응답 표시.
+> 동작: 메시지 전송(WebSocket) → 백엔드가 Modal `aimex-generation`(EXAONE-3.5-2.4B-Instruct + 해당 LoRA)으로 추론 → 토큰 스트리밍으로 응답 표시.
 
 ### 4. RAG — 업로드 문서를 근거로 답변
 
@@ -90,13 +90,13 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 ### 7. 파인튜닝 — QA 생성 → LoRA 학습 → 챗봇 반영
 
-캐릭터 성격을 모델에 실제로 학습시키는 3단계 파이프라인을 한 탭에서 진행·추적합니다. ① 성격·말투 설정으로 **QA 학습 데이터**를 대량 생성(OpenAI 배치)하고, ② 그 데이터로 **Modal GPU(A100-80GB)에서 QLoRA(4bit) 파인튜닝** 후 허깅페이스에 업로드하며, ③ 학습된 어댑터가 챗봇·테스트·외부 API에 자동 반영됩니다. 진행 중인 작업은 상태가 자동 갱신되고, 완료 시 모델 링크가 표시됩니다.
+캐릭터 성격을 모델에 실제로 학습시키는 3단계 파이프라인을 한 탭에서 진행·추적합니다. ① 성격·말투 설정으로 **QA 학습 데이터**를 대량 생성(OpenAI 배치)하고, ② 그 데이터로 **Modal GPU(A10G)에서 QLoRA(4bit) 파인튜닝** 후 허깅페이스에 업로드하며, ③ 학습된 어댑터가 챗봇·테스트·외부 API에 자동 반영됩니다. 진행 중인 작업은 상태가 자동 갱신되고, 완료 시 모델 링크가 표시됩니다.
 
-> 학습 레시피(미라 기준): 다양한 카테고리(인사·사실질문·도움요청·감정·칭찬)로 구성한 코히런트한 QA 약 210쌍을 베이스 모델 `Qwen2.5-32B-Instruct` 에 QLoRA(4bit, r=32, alpha=16, dropout=0.05, lr=1e-4, epochs=3)로 학습. 데이터 다양성과 보수적 하이퍼파라미터로 **과적합으로 인한 응답 붕괴를 막아**, 반말 캐릭터를 유지하면서 사실 질문에도 정확히 답하도록 조정했습니다.
+> 학습 레시피(미라 기준): 다양한 카테고리(인사·사실질문·도움요청·감정·칭찬)로 구성한 코히런트한 QA 약 210쌍을 베이스 모델 `EXAONE-3.5-2.4B-Instruct` 에 QLoRA(4bit, r=32, alpha=16, dropout=0.05, lr=1e-4, epochs=3)로 학습. 데이터 다양성과 보수적 하이퍼파라미터로 **과적합으로 인한 응답 붕괴를 막아**, 반말 캐릭터를 유지하면서 사실 질문에도 정확히 답하도록 조정했습니다.
 
 <img src="etc/screenshots/finetuning.png" width="760" alt="파인튜닝 탭 - 3단계 과정과 작업 상태" />
 
-> 동작: "파인튜닝 시작" → QA 배치 생성(상태 폴링) → Modal `aimex-finetuning`(Qwen2.5-32B + LoRA) 학습 → HF 업로드 → 인플루언서 learning_status 갱신.
+> 동작: "파인튜닝 시작" → QA 배치 생성(상태 폴링) → Modal `aimex-finetuning`(EXAONE-3.5-2.4B + LoRA) 학습 → HF 업로드 → 인플루언서 learning_status 갱신.
 
 ### 8. 이미지 생성 — 텍스트 → 이미지 (+ 프롬프트 미리보기)
 
@@ -177,7 +177,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 | 모델 용도 | 모델 |
 |-----------|------|
-| 대화/추론 (LoRA 베이스) | `Qwen/Qwen2.5-32B-Instruct` |
+| 대화/추론 (LoRA 베이스) | `LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct` |
 | 임베딩 (RAG) | `Qwen/Qwen3-Embedding-0.6B` (1024d) |
 | 음성 합성 (TTS) | `XTTS-v2` |
 | 이미지 생성 | `SDXL-Turbo` |
@@ -228,7 +228,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     A["인플루언서 생성<br/>MBTI·성격·말투"] --> B["QA 생성<br/>OpenAI Batch"]
-    B --> C["LoRA 파인튜닝<br/>Modal · Qwen2.5-32B"]
+    B --> C["LoRA 파인튜닝<br/>Modal · EXAONE-3.5-2.4B"]
     C --> D["챗봇 배포"]
     D --> E1["실시간 챗 + RAG + MCP"]
     D --> E2["음성 합성 (XTTS)"]
