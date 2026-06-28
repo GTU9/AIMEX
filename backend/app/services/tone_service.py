@@ -114,7 +114,6 @@ class ToneGenerationService:
             
             # 응답을 기존 형식으로 변환
             conversation_examples = ToneGenerationService._convert_vllm_response_to_conversation_examples(vllm_result)
-            print('conversation_examples', conversation_examples)
             # 응답 구성
             result = {
                 "personality": request.personality,

@@ -429,40 +429,18 @@ export default function CreatePostPage() {
       // 업로드된 이미지들을 base64로 변환
       const imageBase64List: string[] = [];
       if (formData.uploaded_images.length > 0) {
-        console.log(`총 ${formData.uploaded_images.length}개의 이미지를 처리합니다.`);
         for (let i = 0; i < formData.uploaded_images.length; i++) {
           const file = formData.uploaded_images[i];
           try {
-            console.log(`이미지 ${i + 1}/${formData.uploaded_images.length} 변환 중: ${file.name}`);
             const base64 = await fileToBase64(file);
             imageBase64List.push(base64);
-            console.log(`이미지 ${i + 1} 변환 완료: ${base64.length}자`);
           } catch (error) {
             console.error(`이미지 ${i + 1} base64 변환 실패:`, error);
           }
         }
-        console.log(`총 ${imageBase64List.length}개의 이미지 변환 완료`);
       }
 
-      // AI 생성에 활용될 정보 로깅
-      console.log('=== AI 생성 요청 정보 ===');
-      console.log('주제:', formData.board_topic);
-      console.log('플랫폼:', formData.board_platform);
-      console.log('텍스트 내용:', formData.board_description);
-      console.log('해시태그:', formData.board_hashtag.join(' '));
-      console.log('이미지 개수:', imageBase64List.length);
-      console.log('=== AI 생성 요청 정보 끝 ===');
-
       // /generate-content 엔드포인트로 요청 (DB 저장 안 함)
-      console.log('API 요청 데이터:', {
-        board_topic: formData.board_topic,
-        board_platform: formData.board_platform,
-        influencer_id: formData.influencer_id,
-        team_id: selectedInfluencer?.group_id || user?.teams?.[0]?.group_id || 1,
-        include_content: formData.board_description,
-        hashtags: formData.board_hashtag.join(' '),
-        image_base64_list: imageBase64List.length > 0 ? `${imageBase64List.length}개 이미지` : '없음',
-      });
 
       const res: any = await apiClient.post('/api/v1/boards/generate-content', {
         board_topic: formData.board_topic,
@@ -474,7 +452,6 @@ export default function CreatePostPage() {
         image_base64_list: imageBase64List.length > 0 ? imageBase64List : undefined,
       });
 
-      console.log('API 응답:', res);
 
       if (!res.generated_content) {
         throw new Error('AI 생성 결과가 없습니다.');
@@ -606,10 +583,6 @@ export default function CreatePostPage() {
         })
       };
 
-      console.log('게시글 데이터:', boardData)
-      console.log('이미지 개수:', formData.uploaded_images.length)
-      console.log('팀 ID:', teamId)
-      console.log('사용자 정보:', user)
 
       // 통합 API 사용: 게시글과 이미지를 함께 생성
       const formDataToSend = new FormData()
@@ -620,10 +593,6 @@ export default function CreatePostPage() {
         formDataToSend.append("files", image)
       })
 
-      console.log('FormData 내용:')
-      for (let [key, value] of formDataToSend.entries()) {
-        console.log(`${key}:`, value)
-      }
 
       await apiClient.post('/api/v1/boards/create-with-image', formDataToSend)
 

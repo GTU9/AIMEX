@@ -93,8 +93,6 @@ const createWorkflow = (params: any) => {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    console.log('Next.js 라우트 받은 body:', body)
-
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
 
     // body 전체를 가공 없이 그대로 백엔드로 전달

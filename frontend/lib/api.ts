@@ -64,7 +64,6 @@ class APIClient {
         throw new APIError('No authentication token found', 401)
       }
       headers.Authorization = `Bearer ${token}`
-      console.log('🔑 인증 토큰 추가됨:', token.substring(0, 20) + '...')
     }
 
     // 타임아웃 설정
@@ -100,7 +99,6 @@ class APIClient {
         
         // 401/403 에러 시 자동 로그아웃 처리
         if ((response.status === 401 || response.status === 403) && logoutCallback) {
-          console.log('🔐 토큰 검증 실패로 인한 자동 로그아웃 처리')
           tokenUtils.removeToken()
           logoutCallback()
         }

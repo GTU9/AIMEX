@@ -13,15 +13,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('Sending request to backend:', {
-      url: `${backendUrl}/api/v1/image-generation/generate`,
-      body: body,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': authHeader ? 'Bearer ***' : 'None',
-      }
-    })
-
     const response = await fetch(`${backendUrl}/api/v1/image-generation/generate`, {
       method: 'POST',
       headers: {

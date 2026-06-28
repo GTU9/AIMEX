@@ -868,12 +868,10 @@ export default function ChatPage() {
                   <Avatar className="h-10 w-10 flex-shrink-0">
                     {model.image_url ? (
                       <>
-                        {console.log("🖼️ Avatar 이미지 렌더링:", model.image_url)}
                         <AvatarImage src={model.image_url} alt={model.name} />
                       </>
                     ) : (
                       <>
-                        {console.log("🖼️ Avatar 폴백 렌더링, image_url:", model.image_url)}
                         <AvatarFallback 
                             className={`text-white font-semibold ${model.name.length % 4 === 0 ? 'bg-gradient-to-br from-purple-500 to-pink-500' :
                             model.name.length % 4 === 1 ? 'bg-gradient-to-br from-blue-500 to-cyan-500' :

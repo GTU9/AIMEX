@@ -2435,7 +2435,6 @@ export default function ImageGeneratorPage() {
                                 } else if (selectedImages[0].type === 'gallery' && selectedImages[0].url) {
                                   // 갤러리 이미지의 경우 URL에서 blob으로 변환
                                   const imageUrl = selectedImages[0].url
-                                  console.log('Gallery image URL:', imageUrl, typeof imageUrl)
                                   
                                   // URL이 문자열인지 확인
                                   if (typeof imageUrl !== 'string') {

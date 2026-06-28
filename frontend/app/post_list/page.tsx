@@ -469,9 +469,7 @@ function PostListContent() {
   const loadPostDetail = async (postId: string) => {
     setIsDetailLoading(true); // 로딩 상태 시작
     try {
-      console.log(`상세 정보 로드 시작: ${postId}`); // 디버깅 로그 추가
       const boardDetail = await apiClient.get<any>(`/api/v1/boards/${postId}`)
-      console.log('받아온 상세 정보:', boardDetail); // 디버깅 로그 추가
 
       // API 응답으로부터 완전한 Post 객체 생성
       const detailedPost: Post = {
@@ -511,7 +509,6 @@ function PostListContent() {
         scheduledAt: boardDetail.reservation_at
       }
 
-      console.log('업데이트된 게시글 정보:', detailedPost); // 디버깅 로그 추가
       setSelectedPost(detailedPost)
     } catch (error) {
       console.error('상세 정보 로드 실패:', error); // 상세 에러 로그 추가
@@ -526,8 +523,6 @@ function PostListContent() {
   }
 
   const handleViewPost = (post: Post) => {
-    console.log('상세보기 클릭된 게시글:', post); // 디버깅 로그 추가
-    console.log('post.id:', post.id, 'post.board_id:', post.board_id); // ID 확인
 
     // 먼저 selectedPost를 설정
     setSelectedPost(post)

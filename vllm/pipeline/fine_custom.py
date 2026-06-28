@@ -409,7 +409,6 @@ def main(qa_data: list[dict], system_message: str, hf_token: str, hf_repo_id: st
             "attention_mask": torch.tensor(batch["attention_mask"], dtype=torch.long),
             "labels": torch.tensor(batch["labels"], dtype=torch.long)
         }
-    print("여기는 오고 안되는거야? ")
     # 9. 훈련 인수 설정
     training_args = setup_training_arguments(training_epochs)
     
