@@ -427,7 +427,10 @@ async def get_influencer(
 
     # 이미지 URL을 S3 presigned URL로 변환
     if influencer.image_url:
-        if not influencer.image_url.startswith("http"):
+        # 프론트 정적 placeholder 같은 앱 내부 경로는 그대로 반환한다.
+        if influencer.image_url.startswith("/"):
+            pass
+        elif not influencer.image_url.startswith("http"):
             # S3 키인 경우 presigned URL 생성
             try:
                 from app.services.s3_image_service import get_s3_image_service
