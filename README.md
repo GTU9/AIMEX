@@ -126,7 +126,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 인플루언서의 베이스 음성을 한 번 업로드하면, 이후 입력한 문장을 **그 목소리(음색)** 로 합성합니다. 별도 학습 없이 짧은 샘플만으로 같은 목소리를 재현하는 제로샷 클로닝 방식입니다.(Zonos)
 
-<img src="etc/screenshots/voice.png" width="760" alt="음성 생성 - Zonos" />
+<img src="etc/screenshots/voice.png" width="760" alt="음성 생성 Zonos" />
 
 > 동작: 베이스 음성(base64) + 텍스트 → Modal `aimex-tts`(Zonos) → 합성 음성(wav) 저장·재생.
 
