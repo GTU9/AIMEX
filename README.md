@@ -124,11 +124,11 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 
 ### 11. 음성 — 합성 / 제로샷 클로닝
 
-인플루언서의 베이스 음성을 한 번 업로드하면, 이후 입력한 문장을 **그 목소리(음색)** 로 합성합니다. 별도 학습 없이 짧은 샘플만으로 같은 목소리를 재현하는 제로샷 클로닝 방식입니다.(XTTS-v2)
+인플루언서의 베이스 음성을 한 번 업로드하면, 이후 입력한 문장을 **그 목소리(음색)** 로 합성합니다. 별도 학습 없이 짧은 샘플만으로 같은 목소리를 재현하는 제로샷 클로닝 방식입니다.(Zonos)
 
-<img src="etc/screenshots/voice.png" width="760" alt="음성 생성 - XTTS" />
+<img src="etc/screenshots/voice.png" width="760" alt="음성 생성 - Zonos" />
 
-> 동작: 베이스 음성(base64) + 텍스트 → Modal `aimex-xtts`(XTTS-v2) → 합성 음성(wav) 저장·재생.
+> 동작: 베이스 음성(base64) + 텍스트 → Modal `aimex-tts`(Zonos) → 합성 음성(wav) 저장·재생.
 
 ### 12. 외부 API — 키 발급 후 챗봇 호출
 
@@ -179,7 +179,7 @@ AIMEX는 생성형 AI와 자동화 파이프라인으로 이를 해결합니다.
 |-----------|------|
 | 대화/추론 (LoRA 베이스) | `LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct` |
 | 임베딩 (RAG) | `Qwen/Qwen3-Embedding-0.6B` (1024d) |
-| 음성 합성 (TTS) | `XTTS-v2` |
+| 음성 합성 (TTS) | `Zyphra/Zonos-v0.1-transformer` |
 | 이미지 생성 | `SDXL-Turbo` |
 | 이미지 편집 | `InstructPix2Pix` |
 | QA 생성·프롬프트 최적화 | OpenAI GPT |
@@ -208,7 +208,7 @@ flowchart TB
         GEN["aimex-generation<br/>Qwen + LoRA 추론"]
         FT["aimex-finetuning<br/>LoRA 학습 → HF"]
         EMB["aimex-embedding<br/>Qwen3-Embedding-0.6B"]
-        TTS["aimex-xtts<br/>XTTS-v2"]
+        TTS["aimex-tts<br/>Zonos"]
         IMG["aimex-image<br/>SDXL-Turbo"]
         EDIT["aimex-image-edit<br/>InstructPix2Pix"]
     end
@@ -231,7 +231,7 @@ flowchart LR
     B --> C["LoRA 파인튜닝<br/>Modal · EXAONE-3.5-2.4B"]
     C --> D["챗봇 배포"]
     D --> E1["실시간 챗 + RAG + MCP"]
-    D --> E2["음성 합성 (XTTS)"]
+    D --> E2["음성 합성 (Zonos)"]
     A --> F["이미지 생성/수정<br/>SDXL · IP2P"]
     G["문서 업로드"] --> H["'챗봇에 반영'<br/>Qwen3-Embedding-0.6B → Chroma"] --> E1
 ```
@@ -294,7 +294,7 @@ AIMEX/
 | 문서(RAG) | `POST /api/v1/documents/by-influencer/{id}/vectorize` | "챗봇에 반영" 일괄 임베딩 |
 | 이미지 | `POST /api/v1/image-generation/modal-generate` | SDXL 생성 |
 | 이미지 | `POST /api/v1/image-modification/modal-modify` | IP2P 편집 |
-| 음성 | `POST /api/v1/tts/generate_voice` | XTTS 음성 합성 |
+| 음성 | `POST /api/v1/tts/generate_voice` | Zonos 음성 합성 |
 | 갤러리 | `GET /api/v1/gallery/images` | 생성 이미지 목록 |
 | 공개 | `GET /api/v1/public/mbti` | MBTI 16종 |
 
